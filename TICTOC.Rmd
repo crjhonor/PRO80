@@ -1,0 +1,3107 @@
+---
+title: "TICTOC"
+author: "CHEN RUJIE"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme: lumen
+---
+
+```{r setup, include=FALSE}
+##Loading necessary libraries.=================================================
+library(readr)
+library(readxl)
+library(lubridate)
+library(knitr)
+library(ggplot2)
+library(ggpubr)
+library(zoo)
+library(mFilter)
+library(tsdecomp)
+library(timeDate)
+library(timeSeries)
+
+##Set chunk options.===========================================================
+knitr::opts_chunk$set(echo = FALSE, 
+                      warning = FALSE,
+                      fig.width = 14,
+                      fig.height = 28,
+                      fig.keep = "all",
+                      fig.show = "hold")
+
+## Setting up Global Enviornment.==============================================
+TT <- new.env() #Enviornment to store variabels.
+```
+
+
+<font size="5">TICTOK</font>
+==================================================
+
+BUILD AT: `r Sys.time()`
+
+All Rights Reserved <br> Rujie Chen <br> 18666712666 <br>
+
+TicTok {.tabset .tabset-pills .tabset-fade}
+-------------------------------------
+
+### CYCLE TICTOK
+
+```{r Loading Daily Trading Data}
+## Loading All Trading Data preprocessed.======================================
+TT$TD_All <- read_csv("DEEPLEARN/TD_All.csv", 
+    col_types = cols(X1 = col_date(format = "%Y-%m-%d")))
+
+TT$TD_All.df <- as.data.frame(TT$TD_All,  stringsAsFactors = FALSE)
+colnames(TT$TD_All.df)[1] <- c("Date")
+# Let's derive the hpfc of all Trading Data.
+TT$CMS_Daily.index <- read_csv("DailyTDs/ref_TD.csv") # The last 1000 rows of data.
+TT$CMS_Daily.index.df <- as.data.frame(TT$CMS_Daily.index, stringsAsFactors = FALSE)
+TT$CMS_Daily.df <- TT$TD_All.df[, c("Date", 
+                                    paste0(TT$CMS_Daily.index.df[1, ], "_hpfc"))]
+```
+
+```{r CYCLE TICTOK}
+## Functions.==================================================================
+# Function to obtain sequencial order. Returning the maxes and mins order.
+TT$order_gen <- function(dataset.order = numeric(), 
+                         desired.number = 1){ # How many maxes and mins I want
+  return.x <- dataset.order
+  return.maxes <- numeric()
+  return.mins <- numeric()
+  for(og in 1:desired.number){
+    return.x.max <- which(return.x==max(return.x, na.rm = TRUE))
+    return.x.min <- which(return.x==min(return.x, na.rm = TRUE))
+    return.maxes <- c(return.maxes, return.x.max)
+    return.mins <- c(return.mins, return.x.min)
+    return.x[c(return.x.max, return.x.min)] <- NA
+  }
+  return(list(return.maxes, return.mins))
+}
+
+# Function to plot the cycles.
+TT$cycles_plot <- function(dataset.plot, x_bar.plot, index.plot, 
+                           title.plot = NULL){
+  # Creating the plots.
+  x_label <- seq.Date(from = as.Date(x_bar.plot[1]), 
+                      to = as.Date(x_bar.plot[length(x_bar.plot)]),
+                      length.out = 100)
+  if(length(index.plot) == 2){
+    return.gg <- ggplot(dataset.plot, aes(x = as.factor(x_bar.plot), group = 1)) +
+      scale_x_discrete(breaks = c(as.character(x_label)), labels = format(x = x_label, format = "%Y/%m/%d")) +
+      theme(axis.text.x = element_text(angle = 90))
+    for(ip in 1:length(index.plot)){
+      return.gg <- return.gg + geom_line(aes_string(y = colnames(dataset.plot)[index.plot[ip]]),
+                                         color = round(runif(1, min = 1, max = 20)))
+    }  
+  # Creating the title and x,y labs.
+    return.gg <- return.gg + ggtitle(paste(title.plot,
+                                           colnames(dataset.plot)[index.plot[1]],
+                                           "spread to",
+                                           colnames(dataset.plot)[index.plot[2]]))
+    return.gg <- return.gg + ylab("Cycles from Trend.") + xlab("Trading Date")
+  # Finally add legends into the plot.
+    return.gg <- return.gg +
+      annotate("text", 
+               x = which(dataset.plot[, index.plot[1]] == max(dataset.plot[, index.plot[1]], na.rm = TRUE)), 
+               y = Inf, label = colnames(dataset.plot)[index.plot[1]], vjust = 1.5, fontface = "bold") +
+      annotate("text",
+               x = which(dataset.plot[, index.plot[2]] == min(dataset.plot[, index.plot[2]], na.rm = TRUE)),
+               y = -Inf, label = colnames(dataset.plot)[index.plot[2]], vjust = -1, fontface = "bold")
+  }
+  
+  return(return.gg)
+}
+
+## Reprocessing the cycles.====================================================
+# Scales the cycles.
+TT$CMS_Daily.scale.df <- as.data.frame(scale(TT$CMS_Daily.df[, -1]), stringsAsFactors = FALSE)
+# Locate the cycle pair that has the most distance in the day close.
+TT$CMS_Daily.last.df <- TT$CMS_Daily.scale.df[nrow(TT$CMS_Daily.scale.df), ]
+TT$CMS_Daily.orders <- TT$order_gen(TT$CMS_Daily.last.df,
+                                    desired.number = 6)
+names(TT$CMS_Daily.orders) <- c("maxes", "mins")
+
+## Try Ploting out the scaled cycles. =========================================
+TT$x_label <- seq.Date(from = TT$CMS_Daily.df[1, 1],
+                       to = TT$CMS_Daily.df[nrow(TT$CMS_Daily.df), 1],
+                       by = "week")
+TT$CMS_Daily.gg1 <- TT$cycles_plot(TT$CMS_Daily.scale.df,
+                                   TT$CMS_Daily.df$Date,
+                                   c(TT$CMS_Daily.orders[[1]][1], TT$CMS_Daily.orders[[2]][1]),
+                                   title.plot = c("The Most Distance Spread:"))
+
+TT$CMS_Daily.gg2 <- TT$cycles_plot(TT$CMS_Daily.scale.df,
+                                   TT$CMS_Daily.df$Date,
+                                   c(TT$CMS_Daily.orders[[1]][2], TT$CMS_Daily.orders[[2]][2]),
+                                   title.plot = c("The Second Distance Spread:"))
+
+TT$CMS_Daily.gg3 <- TT$cycles_plot(TT$CMS_Daily.scale.df,
+                                   TT$CMS_Daily.df$Date,
+                                   c(TT$CMS_Daily.orders[[1]][3], TT$CMS_Daily.orders[[2]][3]),
+                                   title.plot = c("The Third Distance Spread:"))
+
+TT$CMS_Daily.gg4 <- TT$cycles_plot(TT$CMS_Daily.scale.df,
+                                   TT$CMS_Daily.df$Date,
+                                   c(TT$CMS_Daily.orders[[1]][4], TT$CMS_Daily.orders[[2]][4]),
+                                   title.plot = c("The Fourth Distance Spread:"))
+
+TT$CMS_Daily.gg5 <- TT$cycles_plot(TT$CMS_Daily.scale.df,
+                                   TT$CMS_Daily.df$Date,
+                                   c(TT$CMS_Daily.orders[[1]][5], TT$CMS_Daily.orders[[2]][5]),
+                                   title.plot = c("The Fifth Distance Spread:"))
+
+TT$CMS_Daily.gg6 <- TT$cycles_plot(TT$CMS_Daily.scale.df,
+                                   TT$CMS_Daily.df$Date,
+                                   c(TT$CMS_Daily.orders[[1]][6], TT$CMS_Daily.orders[[2]][6]),
+                                   title.plot = c("The Sixth Distance Spread:"))
+
+ggarrange(TT$CMS_Daily.gg1,
+          TT$CMS_Daily.gg2,
+          TT$CMS_Daily.gg3,
+          TT$CMS_Daily.gg4,
+          TT$CMS_Daily.gg5,
+          TT$CMS_Daily.gg6,
+          ncol = 1,
+          nrow = 6)
+
+
+```
+
+<font size="5">TIT_TAT_ALPHA</font>
+==================================================
+
+TIT_TAT_ALPHA {.tabset .tabset-pills .tabset-fade}
+-------------------------------------
+
+```{r TIT FOR TAT INITIATE}
+## Some set up of the global environment.======================================
+text_paste <- function(x) {
+  return.text <- paste(x[1], x[2], sep = "_2_")
+  return(return.text)
+}
+
+## More advancded way to setup the spreads.====================================
+TT$spreads.list <- read_excel("DATA/hedges_list.xls")
+TT$spreads.index.l <- as.data.frame(TT$spreads.list[, c("lag1", "lag2")])
+TT$spreads.text.l <- paste(TT$spreads.index.l[, 1], TT$spreads.index.l[, 2], sep = "_2_")
+TT$spreads.weight.l <- as.data.frame(TT$spreads.list[, c("weight1", "weight2")])
+TT$spreads.position.l <- as.data.frame(TT$spreads.list[, c("position1", "position2")])
+
+# Calculating the hedges data.
+TT$spreads.DailyTD.l <- list(NULL)
+for (i in 1: nrow(TT$spreads.index.l)){
+  TT$index <- TT$spreads.index.l[i,]
+  TT$weight <- TT$spreads.weight.l[i, ]
+  TT$DailyTD.df <- TT$TD_All.df[, c("Date", paste0(TT$index, "Close"))]
+  TT$DailyTD.df <- cbind(TT$DailyTD.df, TT$weight[1], TT$weight[2])
+  TT$DailyTD.df$SPREAD <- TT$DailyTD.df[, 2] * TT$DailyTD.df$weight1 - TT$DailyTD.df[, 3] * TT$DailyTD.df$weight2
+  TT$gg.dataset <- TT$DailyTD.df[, c("Date", "SPREAD")]
+  #Dealing with NAs here.
+  TT$gg.dataset$SPREAD <- na.approx(TT$gg.dataset$SPREAD, method = "constant", rule = 2)
+  TT$gg.dataset <- cbind(TT$gg.dataset, TT$spreads.text.l[[i]])
+  colnames(TT$gg.dataset) <- c("DATE", "SPREAD.DATA", "SPREAD.NAME")
+  TT$spreads.DailyTD.l[[i]] <- TT$gg.dataset
+  names(TT$spreads.DailyTD.l)[i] <- TT$spreads.text.l[i]
+}
+```
+
+```{r}
+## Processing the spreads.=====================================================
+# We process the spreads using Hodrick Prescott Filters.
+TT$spreads.HPFs <- list(NULL)
+TT$spreads.HPFs.gg <- list(NULL)
+for(i in 1:nrow(TT$spreads.index.l)){
+  TT$x.hpf <- hpfilter(na.approx(TT$spreads.DailyTD.l[[i]]$SPREAD.DATA), 
+                       freq = 2419200, type = c("lambda"), drift = FALSE)
+  TT$spreads.HPFs[i] <- list(TT$x.hpf)
+  names(TT$spreads.HPFs)[i] <- TT$spreads.text.l[i]
+  # Generate the dataset for ggplot as well.
+  TT$x.hpf.s <- cbind.data.frame(DATE = TT$spreads.DailyTD.l[[i]][1:length(TT$x.hpf$cycle), 1],
+                                 CLOSE = TT$spreads.DailyTD.l[[i]]$SPREAD.DATA,
+                                 TYPE = c("SPREAD"))
+  TT$x.hpf.t <-   cbind.data.frame(DATE = TT$spreads.DailyTD.l[[i]][1:length(TT$x.hpf$trend), 1],
+                                   CLOSE = TT$x.hpf$trend,
+                                   TYPE = c("TREND")) 
+  TT$x.hpf.c <-   cbind.data.frame(DATE = TT$spreads.DailyTD.l[[i]][1:length(TT$x.hpf$cycle), 1],
+                                   CLOSE = TT$x.hpf$cycle,
+                                   TYPE = c("CYCLE")) 
+  TT$spreads.HPFs.gg[i] <- list(rbind.data.frame(TT$x.hpf.s,TT$x.hpf.t, TT$x.hpf.c))
+  names(TT$spreads.HPFs.gg)[i] <- TT$spreads.text.l[i]
+}
+
+# Let's derive the hpfs of all yields Data.
+TT$ref_yields <- read_csv("DailyTDs/ref_yields.csv") # The last 1000 rows of data.
+TT$ref_yields <- TT$ref_yields[, 1:2]
+TT$ref_yields.df <- as.data.frame(TT$ref_yields, stringsAsFactors = FALSE)
+TT$yields.df <- TT$TD_All.df[, c("Date", 
+                                 paste0(TT$ref_yields.df[1, ], "Close"),
+                                 paste0(TT$ref_yields.df[1, ], "_hpft"),
+                                 paste0(TT$ref_yields.df[1, ], "_hpfc"))]
+
+it <-0
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 1
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 2
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### <b><font color="yellow">`r TT$spreads.text.l[it+1]`</font></b>
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 3
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 4
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 5
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 6
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 7
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 8
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[8]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 9
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 10
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[10]], # Have 2 same words.
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+<font size="5">TIT_TAT_BETA</font>
+==================================================
+
+TIT_TAT_BETA {.tabset .tabset-pills .tabset-fade}
+-------------------------------------
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 11
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 12
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 13
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 14
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 15
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 16
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 17
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 18
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 19
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 20
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+<font size="5">TIT_TAT_GAMMA</font>
+==================================================
+
+TIT_TAT_GAMMA {.tabset .tabset-pills .tabset-fade}
+-------------------------------------
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 21
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 22
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+### `r TT$spreads.text.l[it+1]`
+
+```{r}
+## Some set up of the global environment.======================================
+# Plot out using ggplot2
+it <- 23
+TT$spread.gg <- ggplot(data = TT$spreads.DailyTD.l[[it]],
+                       aes(x = TT$spreads.DailyTD.l[[it]]$DATE,
+                           y = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA,
+                           color = TT$spreads.DailyTD.l[[it]]$SPREAD.NAME)) +
+  geom_line() + labs(x = "TRADING DATE", y = "CLOSE PRICE OF THE SPREAD", color = "SPREAD NAME") +
+  ggtitle(label = paste("SPREAD OF", TT$spreads.text.l[[it]], "Ratios at ", 
+                        TT$spreads.position.l[it, 1], ":", TT$spreads.position.l[it, 2]))
+
+```
+
+```{r}
+# Generate ggplot
+TT$spread.filters.hpf.gg.t <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], 
+                                                   TYPE == "SPREAD" | TYPE == "TREND"),
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) +
+  geom_line() + ggtitle("SPREAD filtering using hpfilter: TREND")
+TT$spread.filters.hpf.gg.c <- ggplot(data = subset(TT$spreads.HPFs.gg[[it]], TYPE == "CYCLE"), 
+                                     aes(x = DATE, y = CLOSE, color = TYPE)) + geom_line() +
+  ggtitle("SPREAD filtering using hpfilter: CYCLE")
+## This chunk is to plot out the trend of the spread to yields.================
+# Obtain spread's data for ploting.
+TT$s2y.spread.id <- TT$spreads.text.l[[it]]
+TT$s2y.gg.dataset <- subset(TT$spreads.HPFs.gg[[TT$s2y.spread.id]],
+                            TYPE == "TREND")
+# TT$s2y.gg.dataset$TYPE <- as.character.factor(TT$s2y.gg.dataset$TYPE)
+# Try scale it in order to have a correct plot.
+TT$s2y.gg.dataset$CLOSE <- scale(TT$s2y.gg.dataset$CLOSE)
+# Obtain CN_10yry trend for ploting.
+for(iy in 1:length(TT$ref_yields)){
+  TT$x.df <- TT$TD_All.df[, c("Date", paste0(TT$ref_yields[1, iy], "_hpft"))]
+  TT$x.df$TYPE <- c(TT$ref_yields[1, iy])
+  TT$x.df$TYPE <- as.character(TT$x.df$TYPE)
+  colnames(TT$x.df) <- c("DATE", "CLOSE", "TYPE")
+  TT$x.df$CLOSE <- scale(TT$x.df$CLOSE)
+  TT$s2y.gg.dataset <- rbind.data.frame(TT$s2y.gg.dataset, TT$x.df)
+}
+# Try ploting the dataset out using ggplot2
+TT$s2y.gg <- ggplot(data = TT$s2y.gg.dataset, aes(x = DATE, y = CLOSE, 
+                                                  color = TYPE, linetype = TYPE)) +
+  geom_line(size = 1)
+
+ggarrange(TT$spread.gg, 
+          TT$spread.filters.hpf.gg.t,
+          TT$spread.filters.hpf.gg.c,
+          TT$s2y.gg,
+          ncol = 1, nrow = 4)
+```
+
+### dc
+
+```{r}
+## Functions.==================================================================
+TT$arima_decomp_12 <- function(dataset.ts = ts()){
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+
+## Reprocessing the spread dataset.============================================
+TT$spread.DailyTD.ts <- timeSeries(data = TT$spreads.DailyTD.l[[it]]$SPREAD.DATA, 
+                                   charvec = TT$spreads.DailyTD.l[[it]]$DATE)
+TT$spread.MonthlyTD.ts <- daily2monthly(TT$spread.DailyTD.ts)
+# Adding the current month if not there.
+if(month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)] != month(Sys.Date())){
+  TT$spread.MonthlyTD.ts <- rbind(TT$spread.MonthlyTD.ts,
+                                TT$spread.DailyTD.ts[length(TT$spread.DailyTD.ts), ])
+}
+
+# Prepare for arima decomposition.
+TT$y <- TT$spread.MonthlyTD.ts@.Data
+TT$y.x1 <- year(TT$spread.MonthlyTD.ts)[1]
+TT$y.y1 <- month(TT$spread.MonthlyTD.ts)[1]
+TT$y.x2 <- year(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.y2 <- month(TT$spread.MonthlyTD.ts)[length(TT$spread.MonthlyTD.ts)]
+TT$y.ts <- ts(TT$y, start = c(TT$y.x1, TT$y.y1), end = c(TT$y.x2, TT$y.y2), frequency = 12)
+TT$comp <- TT$arima_decomp_12(TT$y.ts)
+
+## Result Output.==============================================================
+plot(TT$comp, overlap.trend = TRUE, args.trend = list(col = "red"))
+
+```
+
+<font size="5">reMACROs</font>
+==================================================
+
+reMACROs {.tabset .tabset-fade}
+-------------------------------------
+
+```{r reMACROs reloading macrodata}
+## Global Environment Setup.===================================================
+TTM <- new.env() #Enviornment for Macro Data.
+TTM$globalStartYear <- c(2008)
+
+## Functions.==================================================================
+TTM$read_macro <- function(macanamonthly_name){
+  #Read Excel File Data.
+  TD.read <- read_excel(file.path("DATA/MacAnaMonthly.xls"),
+                        col_types = c("text", rep("numeric", length(macanamonthly_name))),
+                        col_names = TRUE
+  )
+  colnames(TD.read) <- c("Date", macanamonthly_name)
+  #Make Correction the formate of the Date Column.
+  TD.read$Date <- paste0(gsub("\\D", "", TD.read$Date), "01")
+  #Subsetting Into 10 Year Window.
+  TD.read <- subset.data.frame(TD.read, year(strptime(TD.read[[1]], 
+                                                      format = "%Y%m%d")) >= TTM$globalStartYear)
+  #Dealing with NAs.
+  TD.read.na <- as.data.frame(na.approx(TD.read[,2:length(TD.read)]))
+  TD.read.na <- cbind(TD.read[, 1], TD.read.na)
+  colnames(TD.read.na) <- c("Date", macanamonthly_name)
+  #Return Dataframe without NAs.
+  return(TD.read.na)
+}
+
+## Processing.=================================================================
+#Read Monthly Macro Analysis Datas
+TTM$ref_macro <- c("CNPMI", "CAIXINPMI", "USPMI", "EUPMI", "UKPMI", 
+                   "cncpi", "uscpi", "eucpi", "ukcpi", 
+                   "CN_PPI", "US_PPI")
+TTM$ref_macro.text <- c("China PMI",
+                        "China CaiXin PMI",
+                        "United States PMI",
+                        "Europe PMI",
+                        "United Kingdom PMI",
+                        "China cpi",
+                        "United States cpi",
+                        "Europe cpi",
+                        "United Kingdom cpi",
+                        "China PPI",
+                        "US PPI")
+TTM$macro <- TTM$read_macro(TTM$ref_macro)
+```
+
+```{r tsdecomp of CNPMI}
+## Functions of tsdecomp.======================================================
+# Function for the matrix of acgf2poly
+TTM$mat.acgf2poly_gen <- function(){
+  n <- 50
+  m <- diag(1, n, n)
+  n2 <- n - 2
+  j <- -1
+  tmp <- as.numeric(seq.int(2, n - 1))
+  for(i in seq.int(3, n - 2, 2)){
+    id <- cbind(seq_len(n2), seq.int(i, n))
+    m[id] <- j * tmp
+    n2 <- n2 - 2
+    j <- -1 * j
+    tmp <- cumsum(tmp[seq_len(n2)])
+    }
+  if(n %% 2 == 0){
+    id <- cbind(seq_len(n2), seq.int(n - 1, n))
+    m[id] <- j * tmp
+    }else{
+      m[1, n] <- j * tmp
+    }
+  return(m)
+}
+
+# Function for arima based decomposition
+TTM$arima_decomp_12 <- function(dataset.ts = ts()){
+  mat.acgf2poly <- TTM$mat.acgf2poly_gen()
+  fit <- arima(dataset.ts, order = c(0,1,1), seasonal = list(order = c(0,1,1)))
+  p <- roots.allocation(fit)
+  psp <- pseudo.spectrum(fit, p)
+  pfd <- partial.fraction(psp$total.numerator,
+                          psp$denominators$trend,
+                          psp$denominators$transitory,
+                          psp$denominators$seasonal)
+  
+  cd <- canonical.decomposition(pfd$num.trend, 
+                                psp$denominators$trend,
+                                pfd$num.transitory, 
+                                psp$denominators$transitory,
+                                pfd$num.seas, 
+                                psp$denominators$seasonal, 
+                                psp$quotient)
+  
+  comp <- filtering(x=dataset.ts, mod=fit,
+                    trend=list(ar=p$trend, 
+                               ma=cd$trend$coef, 
+                               sigma2=cd$trend$sigma2),
+                    transitory=list(ar=p$trans, 
+                                    ma=cd$trans$coef, 
+                                    sigma2=cd$trans$sigma2),
+                    seasonal=list(ar=p$seas, 
+                                  ma=cd$seas$coef, 
+                                  sigma2=cd$seas$sigma2),
+                    irregular.sigma2=cd$irregular.sigma2, 
+                    extend=72)
+  return(comp)
+}
+
+## Processing.=================================================================
+# For every macrodata.
+TTM$reMacro.decomp <- list(NULL)
+for(i in 1:length(TTM$ref_macro)){
+  TTM$decomp.df <- na.omit(TTM$macro[, c("Date", TTM$ref_macro[i])])
+  TTM$ts.x <- as.numeric(substr(TTM$decomp.df$Date[nrow(TTM$decomp.df)], start = 1, stop = 4))
+  TTM$ts.y <- as.numeric(substr(TTM$decomp.df$Date[nrow(TTM$decomp.df)], start = 5, stop = 6))
+  TTM$decomp.ts <- ts(rev(TTM$decomp.df[, 2]), 
+                   start = c(TTM$ts.x, TTM$ts.y), 
+                   frequency = 12)
+  TTM$reMacro.decomp[i] <- list(TTM$arima_decomp_12(TTM$decomp.ts))
+  names(TTM$reMacro.decomp)[i] <- paste0(TTM$ref_macro[i], ".decomp")
+}
+
+## Ploting out the result.=====================================================
+ip <- 1
+```
+
+### `r names(TTM$reMacro.decomp)[ip]`
+
+```{r reMacro.decomp 1}
+plot(TTM$reMacro.decomp[[ip]], overlap.trend = TRUE, args.trend = list(col = ip))
+ip <- 2
+```
+
+### `r names(TTM$reMacro.decomp)[ip]`
+
+```{r reMacro.decomp 2}
+plot(TTM$reMacro.decomp[[ip]], overlap.trend = TRUE, args.trend = list(col = ip))
+ip <- 3
+```
+
+### `r names(TTM$reMacro.decomp)[ip]`
+
+```{r reMacro.decomp 3}
+plot(TTM$reMacro.decomp[[ip]], overlap.trend = TRUE, args.trend = list(col = ip))
+ip <- 4
+```
+
+### `r names(TTM$reMacro.decomp)[ip]`
+
+```{r reMacro.decomp 4}
+plot(TTM$reMacro.decomp[[ip]], overlap.trend = TRUE, args.trend = list(col = ip))
+ip <- 5
+```
+
+### `r names(TTM$reMacro.decomp)[ip]`
+
+```{r reMacro.decomp 5}
+plot(TTM$reMacro.decomp[[ip]], overlap.trend = TRUE, args.trend = list(col = ip))
+ip <- 6
+```
+
+### `r names(TTM$reMacro.decomp)[ip]`
+
+```{r reMacro.decomp 6}
+plot(TTM$reMacro.decomp[[ip]], overlap.trend = TRUE, args.trend = list(col = ip))
+ip <- 7
+```
+
+### `r names(TTM$reMacro.decomp)[ip]`
+
+```{r reMacro.decomp 7}
+plot(TTM$reMacro.decomp[[ip]], overlap.trend = TRUE, args.trend = list(col = ip))
+ip <- 8
+```
+
+### `r names(TTM$reMacro.decomp)[ip]`
+
+```{r reMacro.decomp 8}
+plot(TTM$reMacro.decomp[[ip]], overlap.trend = TRUE, args.trend = list(col = ip))
+ip <- 9
+```
+
+### `r names(TTM$reMacro.decomp)[ip]`
+
+```{r reMacro.decomp 9}
+plot(TTM$reMacro.decomp[[ip]], overlap.trend = TRUE, args.trend = list(col = ip))
+ip <- 10
+```
+
+### `r names(TTM$reMacro.decomp)[ip]`
+
+```{r reMacro.decomp 10}
+plot(TTM$reMacro.decomp[[ip]], overlap.trend = TRUE, args.trend = list(col = ip))
+ip <- 11
+```
+
+### `r names(TTM$reMacro.decomp)[ip]`
+
+```{r reMacro.decomp 11}
+plot(TTM$reMacro.decomp[[ip]], overlap.trend = TRUE, args.trend = list(col = ip))
+```

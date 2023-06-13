@@ -1,0 +1,30 @@
+---
+title: "README--PRO80 PROJECTS"
+author: "CRJ"
+date: "2022/04/24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### <b>POJECT VIEWS.</b>
+Require over 40 commordities, and, major yields and currencies. This project are separating the trend and cycle element base both on daily trading data and hourly trading data. Correlation of the trends are analysis, conclusions draw to whether coordinate with major global issues or rate cycles. Then opportunities of trading can be found with higher probabilities.
+
+## <b>DAILY TRADING DATA AND hourly trading data are analysis.</b>
+
+<./DAILY.Rmd> is to analysis the daily trading data,
+
+<./DAILY_SPMI.Rmd> includes more macro economic data, 
+
+and other subsidiary Rmd files to access the hourly trading data.
+
+## <b>Anaysis the correlationships within pairs of targets.</b>
+
+<./TICTOC.Rmd>
+
+## <b>Seasonal factors are reviewed.</b>
+
+with
+<./SEASONAL.Rmd>

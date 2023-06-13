@@ -1,0 +1,156 @@
+---
+title: "CORRELATION_ANALYSIS"
+#author: "CHENRUJIE"
+#date: "2022年7月9日"
+output: 
+  html_document: 
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      message = FALSE,
+                      warning = FALSE)
+globalWD <- file.path("~/PRO80")
+globalWD.DATA <- file.path(globalWD, "DATA")
+
+desiredIndex_1 <- "CU0"
+desiredIndex_2 <- "RB0"
+desiredIndex_3 <- "I0"
+
+wd_Start = "2022-05-15"
+
+# Libraries.--------------------------------------------------------------------
+library(readr)
+library(timeDate)
+library(timeSeries)
+```
+
+I now become understand the importance of identifying the correlations between price changes among the commodities to make the a box out of it at either 11 or 7 numbers. Now let me take a step back to look at the commodities price changes. 
+
+# Reading the Daily Trading Data.
+
+```{r Loading Daily Trading Data, paged.print=FALSE}
+## Loading All Trading Data pre processing.=====================================
+TD_All <- read_csv(file.path(globalWD, "DEEPLEARN/TD_All.csv"), col_types = cols(X1 = col_date(format = "%Y-%m-%d")))
+TD_All.df <- as.data.frame(TD_All,  stringsAsFactors = FALSE)
+colnames(TD_All.df)[1] <- c("Date")
+
+# Let's derive the hpfc of all Trading Data.
+CMS_Daily.index <- read_csv(file.path(globalWD, "DailyTDs/ref_TD.csv")) 
+CMS_Daily.index.df <- as.data.frame(CMS_Daily.index, stringsAsFactors = FALSE)
+CMS_Daily.df <- TD_All.df[, c("Date", paste0(CMS_Daily.index.df[1, ], "Close"))]
+CMS_Daily.ts <- timeSeries(CMS_Daily.df[, -1], charvec = CMS_Daily.df$Date)
+
+print('DONE!')
+```
+
+# Generate Log Return
+
+```{r Generate Log Return With Desired Index Ordering}
+
+# Function to generate desired index order.
+desiredOrder <- function(ref_index, desiredIndex = "RB0"){
+  x <- ref_index[1, ] == desiredIndex
+  x <- order(x, decreasing = TRUE)
+  return_ref_index <- ref_index[x]
+  return(return_ref_index)
+}
+
+# Function to generate log return.
+generateLogr <- function(dataset_ts, order){
+  # Generate log return of basket 1
+  basketDaily_ts <- dataset_ts[, c(paste0(order, "Close"))]
+  # Shrinking into window time.
+  basketDaily_ts <- basketDaily_ts[rownames(basketDaily_ts)>=wd_Start, ]
+  basketDaily_ts <- timeSeries::na.omit(basketDaily_ts)
+  # Generate log returns.
+  basketDailylogr_ts <- log(basketDaily_ts/lag(basketDaily_ts, 1))
+  basketDailylogr_ts <- timeSeries::na.omit(basketDailylogr_ts)
+  colnames(basketDailylogr_ts) <- order
+  return(basketDailylogr_ts)
+}
+# Generate log returns.---------------------------------------------------------
+# Generate log return of basket 1
+basketindex_Order_1 <- desiredOrder(CMS_Daily.index.df[1, ], desiredIndex_1)
+basketDailylogr_ts_1 <- generateLogr(CMS_Daily.ts, basketindex_Order_1)
+
+basketindex_Order_2 <- desiredOrder(CMS_Daily.index.df[1, ], desiredIndex_2)
+basketDailylogr_ts_2 <- generateLogr(CMS_Daily.ts, basketindex_Order_2)
+
+basketindex_Order_3 <- desiredOrder(CMS_Daily.index.df[1, ], desiredIndex_3)
+basketDailylogr_ts_3 <- generateLogr(CMS_Daily.ts, basketindex_Order_3)
+
+print(paste0("Log Return Generation for ", desiredIndex_1, " is DONE!"))
+print(paste0("Log Return Generation for ", desiredIndex_2, " is DONE!"))
+print(paste0("Log Return Generation for ", desiredIndex_3, " is DONE!"))
+
+```
+
+# Calculate the Correction of `r desiredIndex_1`
+
+```{r}
+corMatrix <- round(cor(basketDailylogr_ts_1), digits = 2)
+```
+
+## corrplot to `r desiredIndex_1`
+
+```{r}
+library(corrplot)
+re = cor(basketDailylogr_ts_1, use = "complete.obs")
+corrplot(re)
+```
+
+## most correlated to `r desiredIndex_1`
+
+```{r}
+mostCorrelated <- corMatrix[1, ]
+mostCorrelated[order(mostCorrelated, decreasing = TRUE)][1:30]
+```
+
+--------------------------------------------------------------------------------
+
+# Calculate the Correction of `r desiredIndex_2`
+
+```{r}
+corMatrix <- round(cor(basketDailylogr_ts_2), digits = 2)
+```
+
+## corrplot to `r desiredIndex_2`
+
+```{r}
+library(corrplot)
+re = cor(basketDailylogr_ts_2, use = "complete.obs")
+corrplot(re)
+```
+
+## most correlated to `r desiredIndex_2`
+
+```{r}
+mostCorrelated <- corMatrix[1, ]
+mostCorrelated[order(mostCorrelated, decreasing = TRUE)][1:30]
+```
+
+--------------------------------------------------------------------------------
+
+# Calculate the Correction of `r desiredIndex_3`
+
+```{r}
+corMatrix <- round(cor(basketDailylogr_ts_3), digits = 2)
+```
+
+## corrplot to `r desiredIndex_3`
+
+```{r}
+library(corrplot)
+re = cor(basketDailylogr_ts_3, use = "complete.obs")
+corrplot(re)
+```
+
+## most correlated to `r desiredIndex_3`
+
+```{r}
+mostCorrelated <- corMatrix[1, ]
+mostCorrelated[order(mostCorrelated, decreasing = TRUE)][1:30]
+```

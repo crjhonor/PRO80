@@ -1,0 +1,1393 @@
+---
+title: "SEASONAL"
+author: "CHEN RUJIE"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme: sandstone
+---
+
+```{r setup, include=FALSE}
+##Loading necessary libraries.=================================================
+library(readr)
+library(readxl)
+library(lubridate)
+library(knitr)
+library(ggplot2)
+library(ggpubr)
+library(zoo)
+library(mFilter)
+library(tsdecomp)
+library(timeDate)
+library(timeSeries)
+
+##Set chunk options.===========================================================
+knitr::opts_chunk$set(echo = FALSE, 
+                      warning = FALSE,
+                      fig.width = 14,
+                      fig.height = 28,
+                      fig.keep = "all",
+                      fig.show = "hold")
+
+## Setting up Global Enviornment.==============================================
+TTS <- new.env() #Enviornment to store variabels.
+```
+
+
+<font size="3">INFO</font>
+==================================================
+
+BUILD AT: `r Sys.time()`
+
+All Rights Reserved <br> Rujie Chen <br> 18666712666 <br>
+
+TicTok {.tabset .tabset-pills .tabset-fade}
+-------------------------------------
+
+```{r Loading Daily Trading Data}
+## Loading All Trading Data preprocessed.======================================
+TTS$TD_All <- read_csv("DEEPLEARN/TD_All.csv", 
+    col_types = cols(X1 = col_date(format = "%Y-%m-%d")))
+
+TTS$TD_All.df <- as.data.frame(TTS$TD_All,  stringsAsFactors = FALSE)
+colnames(TTS$TD_All.df)[1] <- c("Date")
+# Let's derive the hpfc of all Trading Data.
+TTS$CMS_Daily.index <- read_csv("DailyTDs/ref_TD.csv") # The last 1000 rows of data.
+TTS$CMS_Daily.index.df <- as.data.frame(TTS$CMS_Daily.index, stringsAsFactors = FALSE)
+TTS$CMS_Daily.df <- TTS$TD_All.df[, c("Date", 
+                                    paste0(TTS$CMS_Daily.index.df[1, ], "_hpfc"))]
+```
+
+<font size="3">CU RELATED</font>
+==================================================
+
+Implement a monthly based change percentage, together with red and green color indicators, firstly to the RUBBER price. \n
+DATA in PERCENTAGE(%)
+
+CU RELATED {.tabset .tabset-fade}
+-------------------------------------
+
+### COPPER
+
+```{r}
+# Import necessary libraries.===================================================
+
+# Creating Functions.===========================================================
+# Functions to process data into necessary forms.
+seasonalDaproc <- function(dataset.ts, # should be timeseries
+                           dataset.index, # indexes of desired targets
+                           dataset.suffix){ # exctract relative data.
+  dataset.index <- paste(list(dataset.index), list(dataset.suffix), sep = "")
+  tmp.a <- which(colnames(dataset.ts) == dataset.index)
+  dataset.forProc <- dataset.ts[, tmp.a]
+  # Using timeseries library to generate for monthly return.
+  dataset.return.ts <- timeSeries::daily2monthly((dataset.forProc))
+  tmp.x <- round(log(dataset.return.ts/lag(dataset.return.ts))*100, digits = 4) # Algorithm of return
+  colnames(tmp.x) <- paste(list(dataset.index), list(c("_MoM_return")), sep = "")
+  dataset.return.ts <- tmp.x
+  return(dataset.return.ts)
+}
+
+#F Functions to convert data into year-month base table.
+seasonalDaconv <- function(dataset.ts){# should be timeseries
+  # Create the data.frame to store the data
+  # ... with the year as the row, and the month as the columns
+  tmp.year.max <- max(year(dataset.ts))
+  tmp.year.min <- min(year(dataset.ts))
+  tmp.df.col <- seq(tmp.year.min, tmp.year.max)
+  tmp.df.row <- seq(1, 12)
+  tmp.array <- array(NA, c(length(tmp.df.row), length(tmp.df.col)))
+  tmp.df <- data.frame(tmp.array)
+  colnames(tmp.df) <- tmp.df.col
+  rownames(tmp.df) <- tmp.df.row
+  # ... fill the every cell of the data frame with relavent data.
+  for(i in 1:length(dataset.ts)){
+    tmp.t <- date(dataset.ts)[i]
+    tmp.v <- dataset.ts[i]
+    if(is.na(tmp.v)){
+      next
+    }else{
+      tmp.t.x <- which(tmp.df.col == year(tmp.t))
+      tmp.t.y <- which(tmp.df.row == month(tmp.t))
+      tmp.df[tmp.t.y, tmp.t.x] <- tmp.v
+    }
+  }
+  
+  tmp.df['AVERAGE'] <- round(rowMeans(tmp.df, na.rm = TRUE), digits = 4)
+  returnConverted <- tmp.df
+  return(returnConverted)
+}
+
+# Functions to plot, it will be easier to change if necessary.
+seasonalPlot <- function(dataset.df){ # Require data frame format
+  formattable(dataset.df, list(
+    "MONTH" = formatter("span", style = x ~ ifelse(x == month.name[month(Sys.Date())], 
+                                                   style(color = "black", font.weight = "bold"), 
+                                                   style(color = "grey"))),
+    '2015' = formatter("span", style = x ~ ifelse(x < 0, 
+                                                  style("background-color" = "green", color = "white"), 
+                                                  style("background-color" = "red", color = "white"))),
+    '2016' = formatter("span", style = x ~ ifelse(x < 0, 
+                                                  style("background-color" = "green", color = "white"), 
+                                                  style("background-color" = "red", color = "white"))),
+    '2017' = formatter("span", style = x ~ ifelse(x < 0, 
+                                                  style("background-color" = "green", color = "white"), 
+                                                  style("background-color" = "red", color = "white"))),
+    '2018' = formatter("span", style = x ~ ifelse(x < 0, 
+                                                  style("background-color" = "green", color = "white"), 
+                                                  style("background-color" = "red", color = "white"))),
+    '2019' = formatter("span", style = x ~ ifelse(x < 0, 
+                                                  style("background-color" = "green", color = "white"), 
+                                                  style("background-color" = "red", color = "white"))),
+    '2020' = formatter("span", style = x ~ ifelse(x < 0, 
+                                                  style("background-color" = "green", color = "white"), 
+                                                  style("background-color" = "red", color = "white"))),
+    '2021' = formatter("span", style = x ~ ifelse(x < 0, 
+                                                  style("background-color" = "green", color = "white"), 
+                                                  style("background-color" = "red", color = "white"))),
+    '2022' = formatter("span", style = x ~ ifelse(x < 0, 
+                                                  style("background-color" = "green", color = "white"), 
+                                                  style("background-color" = "red", color = "white"))),
+    '2023' = formatter("span", style = x ~ ifelse(x < 0, 
+                                                  style("background-color" = "green", color = "white"), 
+                                                  style("background-color" = "red", color = "white"))),
+    'AVERAGE' = formatter("span", style = x ~ ifelse(x < 0, 
+                                                  style("background-color" = "green", color = "white"), 
+                                                  style("background-color" = "red", color = "white")))
+  ))
+}
+
+# # Try to anaysis the rubber price for trial.==================================
+TTS$dataset.ts <- timeSeries(TTS$TD_All.df, charvec = TTS$TD_All.df$Date)
+TTS$dataset.index <- c("CU0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### PALMOIL
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("P0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### SOYOIL
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("Y0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### SILVER
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("AG0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### BITUMAN
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("BU0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### ZNIC
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("ZN0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### CORN
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("C0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### ALUMINUM
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("AL0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### RAPESEED MEAL
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("RM0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### SOYMEAL
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("M0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### CF0
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("CF0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+<font size="3">RB RELATED</font>
+==================================================
+
+Implement a monthly based change percentage, together with red and green color indicators, firstly to the RUBBER price. \n
+DATA in PERCENTAGE(%)
+
+RB RELATED{.tabset .tabset-fade}
+-------------------------------------
+
+### REBAR
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("RB0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### HC
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("HC0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### IRONORE
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("I0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### PVC
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("V0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### BITUMAN
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("BU0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### J M
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("JM0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### UREA
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("UR0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### Fiber Glass
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("FG0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### METHY ALCOHOL
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("MA0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### SODIUM ACID
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("SA0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### SUGAR
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("SR0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+
+
+<font size="3">CRUDE AND CHEMICALS </font>
+==================================================
+
+Implement a monthly based change percentage, together with red and green color indicators, firstly to the RUBBER price. \n
+DATA in PERCENTAGE(%)
+
+CRUDE AND CHEMICALS {.tabset .tabset-fade}
+-------------------------------------
+
+### CRUDE
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("CL00Y")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### SCM
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("SCM")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### GOLD
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("AU0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### PATROL GAS
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("PG0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### EB
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("EB0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### FUEL
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("FU0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### PTA
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("TA0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### PP
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("PP0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### LASTIC
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("L0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### PVC
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("V0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### LOW SULFUR FUEL
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("LUM")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### RUBBER
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("RU0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+<font size="3">YIELDS </font>
+==================================================
+
+Implement a monthly based change percentage, together with red and green color indicators, firstly to the RUBBER price. \n
+DATA in PERCENTAGE(%)
+
+YIELDS {.tabset .tabset-fade}
+-------------------------------------
+
+### CN 10yry
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("CN_10yry")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### CN 5yry
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("CN_5yry")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### US 10yry
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("US_10yry")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### UK 10yry
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("UK_10yry")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### GR 10yry
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("GR_10yry")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### AU 10yry
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("AU_10yry")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### 10yr Treasury
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("T00C1")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### 5yr Treasury
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("TF00C1")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+<font size="3">CURRENCY </font>
+==================================================
+
+Implement a monthly based change percentage, together with red and green color indicators, firstly to the RUBBER price. \n
+DATA in PERCENTAGE(%)
+
+CURRENCY {.tabset .tabset-fade}
+-------------------------------------
+
+### USDCNH
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("USDCNH")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### USDX
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("USDX")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### USDJPY
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("USDJPY")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### EURUSD
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("EURUSD")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### GBPUSD
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("GBPUSD")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### AUDUSD
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("AUDUSD")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+<font size="3">OTHERS </font>
+==================================================
+
+Implement a monthly based change percentage, together with red and green color indicators, firstly to the RUBBER price. \n
+DATA in PERCENTAGE(%)
+
+OTHERS {.tabset .tabset-fade}
+-------------------------------------
+
+### A50 INDEX
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("IH00C1")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### CSI300 INDEX
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("IF00C1")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### UK.FTSE
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("FTSE")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### US.SPX500
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("SPX")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+
+### Fiber Glass
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("FG0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```
+
+### SODIUM CARBONATE
+
+```{r}
+# ...TRY other tagets.
+TTS$dataset.index <- c("SA0")
+TTS$dataset.suffix <- c("Close")
+# Acquire necessary data.
+TTS$dataset.Daproc.ts <- seasonalDaproc(TTS$dataset.ts, TTS$dataset.index, TTS$dataset.suffix)
+
+# Covert the dataset into year~month base table framework and statistic calculate
+TTS$dataset.Converted.df <- seasonalDaconv(TTS$dataset.Daproc.ts)
+
+# # plot out the table with gradient color.=====================================
+# ...Try formattable package
+library(formattable)
+toPlot.ft.df <- TTS$dataset.Converted.df
+# ...Adjust the table for plot
+toPlot.ft.df <- cbind(data.frame(month.name), toPlot.ft.df)
+colnames(toPlot.ft.df)[1] <- "MONTH"
+seasonalPlot(toPlot.ft.df)
+```

@@ -1,0 +1,275 @@
+---
+title: "TARLOC HOUR TRADE"
+#author: "CHENRUJIE"
+#date: "2018年10月12日"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+---
+
+```{r setup, include=FALSE}
+#Rmarkdown Global Setup--------------------------------------------------
+library(knitr)
+library(readr)
+library(readxl)
+library(mFilter)
+library(zoo)
+library(xts)
+library(ggplot2)
+knitr::opts_chunk$set(echo = FALSE,
+                      warning = FALSE,
+                      fig.width = 16,
+                      fig.height = 10)
+
+#Global Enviornment Setup---------------------------------------------------
+A02 <- new.env() #Enviornment to store variabels.
+
+```
+
+# Processing Trade Data
+
+## HOURLY TRADE DATA {.tabset .tabset-fade}
+
+```{r Processing Hourly Trade Data}
+#Functions.--------------------------------------
+#Function to read from excel file and process with hodrick prescott filter.
+A02$read_xls_hpf <- function(contract_name){
+  #Read Excel File Data.
+  TD.read <- read_excel(paste0("C:/Users/crjMo/Desktop/TARLOC/", contract_name, ".xls"),
+                        col_types = c("text", "text", "date",
+                                      "numeric", "numeric", "numeric", 
+                                      "numeric", "numeric", "numeric", 
+                                      "numeric", "numeric"),
+                        col_names = TRUE
+  )
+  colnames(TD.read) <- c(paste0(contract_name, "Code"),
+                         paste0(contract_name, "Contract"),
+                         paste0(contract_name, "Date"),
+                         paste0(contract_name, "Open"),
+                         paste0(contract_name, "High"),
+                         paste0(contract_name, "Low"),
+                         paste0(contract_name, "Close"),
+                         paste0(contract_name, "Chg"),
+                         paste0(contract_name, "RateofChg"),
+                         paste0(contract_name, "Vol"),
+                         paste0(contract_name, "Amn"))
+  TD.read.na <- na.omit(TD.read)
+  #Return Dataframe without NA.
+  close.HPF <- hpfilter(TD.read.na[[paste0(contract_name, "Close")]], freq=2419200, type=c("lambda"), drift = FALSE)
+  return.output <- as.data.frame(TD.read.na[, 3])
+  return.output <- cbind(return.output,
+                         TD.read.na[, 7],
+                         close.HPF$trend,
+                         close.HPF$cycle)
+  colnames(return.output) <- c(paste0(contract_name, "Date"),
+                               paste0(contract_name, "Close"),
+                               paste0(contract_name, "_hpft"),
+                               paste0(contract_name, "_hpfc"))
+  return(return.output)
+}
+
+#Processing.-------------------------------------
+#Read Trade Data.
+A02$ref_TD.hour <- c("J1901_60", "ZN1812_60", "T1812_60")
+A02$ref_TD.hour.text <- c("DCE J Coal 1901 60 min",
+                          "SHFE Znic 1812 60 min",
+                          "China 10y Treasury 1812 60 min"
+                          )
+
+A02$HourlyTD.List <- list(NULL)
+for(i in 1:length(A02$ref_TD.hour)){
+  A02$HourlyTD.List[i]  <- list(A02$read_xls_hpf(A02$ref_TD.hour[i]))
+  names(A02$HourlyTD.List)[i] <- paste0(A02$ref_TD.hour[i], "_hpf")
+}
+
+#For XTS output.
+A02$HourlyTD.xts.List <- list(NULL)
+for(i in 1:length(A02$ref_TD.hour)){
+  A02$HourlyTD.xts.List[i] <- list(xts(A02$HourlyTD.List[[paste0(A02$ref_TD.hour[i], "_hpf")]][, -1], 
+                                order.by = A02$HourlyTD.List[[paste0(A02$ref_TD.hour[i], "_hpf")]][, 1]))
+  names(A02$HourlyTD.xts.List)[i] <- paste0(A02$ref_TD.hour[i], "_hpf.xts")
+}
+
+```
+
+### TARGET 1-1
+
+```{r Target 1-1 Hourly Data Output, include=FALSE}
+ind <- 1 #Target 1-1
+
+#xts output.
+par(mai=c(0.5,0.5,0.5,0.5))
+par(mfcol=c(1,1))
+plot(A02$HourlyTD.xts.List[[paste0(A02$ref_TD.hour[ind], '_hpf.xts')]][, -3],
+     main=paste0("TARGET 1: ", A02$ref_TD.hour.text[ind], " Hodrict Presccot Filter"),observation.based = TRUE)
+```
+
+```{r}
+addSeries(A02$HourlyTD.xts.List[[paste0(A02$ref_TD.hour[ind], '_hpf.xts')]][, 3],
+          main=paste0("TARGET 1: ", A02$ref_TD.hour.text[ind], " HPFC"))
+```
+
+### TARGET 2-1
+
+```{r Target 2-1 Hourly Data Output, include=FALSE}
+ind <- 2 #Target 2-1
+
+#xts output.
+par(mai=c(0.5,0.5,0.5,0.5))
+par(mfcol=c(1,1))
+plot(A02$HourlyTD.xts.List[[paste0(A02$ref_TD.hour[ind], '_hpf.xts')]][, -3],
+     main=paste0("TARGET 2: ", A02$ref_TD.hour.text[ind], " Hodrict Presccot Filter"),observation.based = TRUE)
+```
+
+```{r}
+addSeries(A02$HourlyTD.xts.List[[paste0(A02$ref_TD.hour[ind], '_hpf.xts')]][, 3],
+          main=paste0("TARGET 2: ", A02$ref_TD.hour.text[ind], " HPFC"))
+```
+
+### LOCKER-1
+
+```{r LOCKER-1 Hourly Data Output, include=FALSE}
+ind <- 3 #Locker
+
+#xts output.
+par(mai=c(0.5,0.5,0.5,0.5))
+par(mfcol=c(1,1))
+plot(A02$HourlyTD.xts.List[[paste0(A02$ref_TD.hour[ind], '_hpf.xts')]][, -3],
+     main=paste0("LOCKER: ", A02$ref_TD.hour.text[ind], " Hodrict Presccot Filter"),observation.based = TRUE)
+```
+
+```{r}
+addSeries(A02$HourlyTD.xts.List[[paste0(A02$ref_TD.hour[ind], '_hpf.xts')]][, 3],
+          main=paste0("LOCKER: ", A02$ref_TD.hour.text[ind], " HPFC"))
+```
+
+## HOURLY VS DAILY {.tabset .tabset-fade}
+
+```{r  HOURLY VS DAILY PROCESSING}
+#Functions.--------------------------------------
+#Reading Daily Trade Data
+A02$read_daily <- function(ref_names){
+  return.list <- list(NULL)
+  for (i in 1:length(ref_names)){
+  TD.read <- read_csv(file.path("C:/Users/crjMo/Desktop/TARLOC/DailyTDs", 
+                                paste0(ref_names[i], "DailyTD.csv")), 
+                      col_types = list(col_date(format = "%Y-%m-%d"),
+                                       col_double(),
+                                       col_double(),
+                                       col_double()))
+  TD.read.xts <- xts(TD.read[, -1], order.by = as.Date(TD.read[, 1], format = "%Y-%m-%d"))
+  return.list[i] <- TD.read.xts
+  names(return.list)[i] <- c(paste0(ref_names[i], "DailyTD.xts"))
+  }
+  return(return.list)
+}
+
+
+#Processing.-------------------------------------
+A02$ref_TD <- c("J0", "ZN0", "T00C2")
+A02$ref_TD.text <- c("DCE J Coal Daily",
+                     "SHFE Znic Daily",
+                     "China 10y Treasury Daily")
+
+#A02$DailTD.List <- A02$read_daily(A02$ref_TD)
+#Wait until next......
+```
+
+### TARGET 1-1 - HD
+
+```{r HOURLY VS DAILY TARGET 1-1}
+
+#Reading Daily Trade Data
+A02$DailyTD.J0 <- read_csv("C:/Users/crjMo/Desktop/TARLOC/DailyTDs/J0DailyTD.csv", 
+    col_types = list(col_datetime(format = "%Y-%m-%d"), 
+                     col_double(),
+                     col_double(), 
+                     col_double()))
+
+#Changed into xts file.
+A02$DailyTD.J0.xts <- xts(A02$DailyTD.J0[, -1], order.by = A02$DailyTD.J0$J0Date)
+A02$HourlyTD.xts.List$J1901_60_hpf.2.xts <- align.time(A02$HourlyTD.xts.List$J1901_60_hpf.xts, n = 60*60)
+
+#Align daily trade data with hourly trade data.
+A02$MixFreTD.J0.xts <- merge.xts(A02$HourlyTD.xts.List$J1901_60_hpf.2.xts,
+                                 A02$DailyTD.J0.xts,
+                                 join = "left")
+index(A02$MixFreTD.J0.xts) <- index(A02$HourlyTD.xts.List$J1901_60_hpf.xts)
+
+#Try Using ggplot2 to show up the result.
+A02$x_label <- seq.POSIXt(from = index(A02$MixFreTD.J0.xts)[1], 
+                          to = index(A02$MixFreTD.J0.xts)[dim(A02$MixFreTD.J0.xts)[1]], by = "week")
+A02$MixFreTD.J0.gg <- ggplot(A02$MixFreTD.J0.xts, aes(x = as.factor(index(A02$MixFreTD.J0.xts)), group = 1)) +
+  geom_line(aes(y = J1901_60Close)) + 
+  geom_line(aes(y = J1901_60_hpft), colour = "red") + 
+  geom_point(aes(y = J0_hpft), colour = "blue", na.rm = TRUE) +
+  scale_x_discrete(breaks = c(as.character(A02$x_label)), labels = format(x = A02$x_label, format = "%m%d")) +
+  ggtitle("J1901 Hourly and Daily Trend.") + xlab("Trading Date")
+A02$MixFreTD.J0.gg
+```
+
+### TARGET 2-1 - HD
+
+```{r HOURLY VS DAILY TARGET 2-1}
+
+#Reading Daily Trade Data
+A02$DailyTD.ZN0 <- read_csv("C:/Users/crjMo/Desktop/TARLOC/DailyTDs/ZN0DailyTD.csv", 
+    col_types = cols(ZN0Close = col_double(), 
+        ZN0Date = col_date(format = "%Y-%m-%d"), 
+        ZN0_hpfc = col_double(), ZN0_hpft = col_double()))
+
+#Changed into xts file.
+A02$DailyTD.ZN0.xts <- xts(A02$DailyTD.ZN0[, -1], order.by = A02$DailyTD.ZN0$ZN0Date)
+
+#Align daily trade data with hourly trade data.
+A02$MixFreTD.ZN0.xts <- merge.xts(A02$HourlyTD.xts.List$ZN1812_60_hpf.xts,
+                                  A02$DailyTD.ZN0.xts,
+                                  join = "left")
+
+#Try Using ggplot2 to show up the result.
+A02$x_label <- seq.POSIXt(from = index(A02$MixFreTD.ZN0.xts)[1], 
+                          to = index(A02$MixFreTD.ZN0.xts)[dim(A02$MixFreTD.ZN0.xts)[1]], by = "week")
+A02$MixFreTD.ZN0.gg <- ggplot(A02$MixFreTD.ZN0.xts, aes(x = as.factor(index(A02$MixFreTD.ZN0.xts)), group = 1)) +
+  geom_line(aes(y = ZN1812_60Close)) + 
+  geom_line(aes(y = ZN1812_60_hpft), colour = "red") + 
+  geom_point(aes(y = ZN0_hpft), colour = "blue", na.rm = TRUE) +
+  scale_x_discrete(breaks = c(as.character(A02$x_label)), labels = format(x = A02$x_label, format = "%m%d")) +
+  ggtitle("ZN1812 Hourly and Daily Trend.") + xlab("Trading Date")
+A02$MixFreTD.ZN0.gg
+```
+
+### LOCKER-1 - HD
+
+```{r HOURLY VS DAILY LOCKER-1}
+
+#Reading Daily Trade Data
+A02$DailyTD.T00C2 <- read_csv("C:/Users/crjMo/Desktop/TARLOC/DailyTDs/T00C2DailyTD.csv", 
+    col_types = list(col_datetime(format = "%Y-%m-%d"), 
+                     col_double(),
+                     col_double(), 
+                     col_double()))
+
+#Changed into xts file.
+A02$DailyTD.T00C2.xts <- xts(A02$DailyTD.T00C2[, -1], order.by = A02$DailyTD.T00C2$T00C2Date)
+A02$HourlyTD.xts.List$T1812_60_hpf.2.xts <- align.time(A02$HourlyTD.xts.List$T1812_60_hpf.xts, n = 60*60*9)
+
+#Align daily trade data with hourly trade data.
+A02$MixFreTD.T00C2.xts <- merge.xts(A02$HourlyTD.xts.List$T1812_60_hpf.2.xts,
+                                 A02$DailyTD.T00C2.xts,
+                                 join = "left")
+index(A02$MixFreTD.T00C2.xts) <- index(A02$HourlyTD.xts.List$T1812_60_hpf.xts)
+
+#Try Using ggplot2 to show up the result.
+A02$x_label <- seq.POSIXt(from = index(A02$MixFreTD.T00C2.xts)[1], 
+                          to = index(A02$MixFreTD.T00C2.xts)[dim(A02$MixFreTD.T00C2.xts)[1]], by = "week")
+A02$MixFreTD.T00C2.gg <- ggplot(A02$MixFreTD.T00C2.xts, aes(x = as.factor(index(A02$MixFreTD.T00C2.xts)), group = 1)) +
+  geom_line(aes(y = T1812_60Close)) + 
+  geom_line(aes(y = T1812_60_hpft), colour = "red") + 
+  geom_point(aes(y = T00C2_hpft), colour = "blue", na.rm = TRUE) +
+  scale_x_discrete(breaks = c(as.character(A02$x_label)), labels = format(x = A02$x_label, format = "%m%d")) +
+  ggtitle("T1812 Hourly and Daily Trend.") + xlab("Trading Date")
+A02$MixFreTD.T00C2.gg
+```

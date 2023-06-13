@@ -1,0 +1,1920 @@
+---
+title: "GOLD, 10yr TREASURY, IRONORE, COPPER, A50 INDEX and CRUDE SPREAD"
+#author: "CHENRUJIE"
+#date: "2021年8月2日"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme: spacelab
+---
+
+```{r setup, include=FALSE}
+#Rmarkdown Global Setup--------------------------------------------------
+library(knitr)
+library(readr)
+library(readxl)
+library(mFilter)
+library(zoo)
+library(xts)
+library(ggplot2)
+library(ggpubr)
+library(timeDate)
+library(timeSeries)
+library(ghyp)
+library(fBasics)
+library(fExtremes)
+library(lubridate)
+knitr::opts_chunk$set(echo = FALSE,
+                      warning = FALSE,
+                      fig.width = 14,
+                      fig.height = 10)
+
+#Global Enviornment Setup---------------------------------------------------
+library(knitr)
+knitr::opts_chunk$set(fig.width = 14,
+                      fig.height = 6)
+H <- new.env() #Enviornment to store variabels.
+H$ref_TD.hour <- c("AU0_60", "T00C1_60", "I0_60", "CU0_60", "IH00C1_60")
+H$ref_TD.hour.text <- c("SHFE GOLD Major 60 min", 
+                        "10YR TREASURY Current 60 min", 
+                        "DCE IRONORE Major 60 min", 
+                        "SHFE COPPER Major 60 min", 
+                        "CFFEX A50 Index Current 60 min")
+H$ref_TD.hour.bk <- H$ref_TD.hour
+H$ref_TD <- c("AU0", "T00C1", "I0" , "CU0", "IH00C1")
+H$ref_TD.text <- c("SHFE GOLD Futures", "CFFEX 10yr Treasury", "DCE IRONORE Futures", "SHFE COPPER Futures", "CFFEX A50 Index Futures")
+H$wd_ind <- paste(format(Sys.Date() - months(1), "%Y-%m"), format(Sys.Date(), "%Y-%m"), sep = "/")
+H$globalWD <- file.path("~/公共的/PRO80")
+H$globalWD.DATA <- file.path(H$globalWD, "DATA")
+
+##Defining probability parameters.
+H$prob.ind <- c(0.80, 0.85, 0.90, 0.95, 0.99, 0.995)
+
+```
+
+TRADING SCORES
+==================================================
+
+BUILD AT: `r Sys.time()`
+
+Abbreviation:
+
+GHD --> Generalized Hyperbolic Distribution
+
+GPD --> Generalized Pareto Distribution
+
+```{r General Preparation Process}
+#Functions.--------------------------------------
+#Function to read from excel file and process with hodrick prescott filter.
+H$read_xls_hpf <- function(contract_name){
+  #Read Excel File Data.
+  TD.read <- read_excel(file.path(H$globalWD.DATA, paste0(contract_name, ".xls")),
+                        col_types = c("text", "text", "date",
+                                      "numeric", "numeric", "numeric", 
+                                      "numeric", "numeric", "numeric", 
+                                      "numeric", "numeric", "numeric"),
+                        col_names = TRUE
+  )
+  colnames(TD.read) <- c(paste0(contract_name, "Code"),
+                         paste0(contract_name, "Contract"),
+                         paste0(contract_name, "Date"),
+                         paste0(contract_name, "Open"),
+                         paste0(contract_name, "High"),
+                         paste0(contract_name, "Low"),
+                         paste0(contract_name, "Close"),
+                         paste0(contract_name, "Chg"),
+                         paste0(contract_name, "RateofChg"),
+                         paste0(contract_name, "Vol"),
+                         paste0(contract_name, "Amn"),
+                         paste0(contract_name, "Settle"))
+  TD.read <- TD.read[, -12]
+  TD.read.na <- na.omit(TD.read)
+  #Return Dataframe without NA.
+  close.HPF <- hpfilter(TD.read.na[[paste0(contract_name, "Close")]], freq=2419200, type=c("lambda"), drift = FALSE)
+  return.output <- as.data.frame(TD.read.na[, 3])
+  return.output <- cbind(return.output,
+                         TD.read.na[, 7],
+                         close.HPF$trend,
+                         close.HPF$cycle)
+  colnames(return.output) <- c(paste0(contract_name, "Date"),
+                               paste0(contract_name, "Close"),
+                               paste0(contract_name, "_hpft"),
+                               paste0(contract_name, "_hpfc"))
+  return(return.output)
+}
+#Functions to Reading Daily Trade Data
+H$read_daily <- function(ref_names){
+  return.list <- list(NULL)
+  for (i in 1:length(ref_names)){
+  TD.read <- read.csv(paste0(H$globalWD, "/DailyTDs/", ref_names[i], "DailyTD.csv"))
+  TD.read.xts <- xts(TD.read[, -1], order.by = as.Date(TD.read[, 1], format = "%Y-%m-%d"))
+  return.list[i] <- list(TD.read.xts)
+  names(return.list)[i] <- c(paste0(ref_names[i], "_hpf.xts"))
+  }
+  return(return.list)
+}
+
+#Processing.-------------------------------------
+#Read Hourly Trade Data.
+H$HourlyTD.List <- list(NULL)
+for(i in 1:length(H$ref_TD.hour)){
+  H$HourlyTD.List[i]  <- list(H$read_xls_hpf(H$ref_TD.hour[i]))
+  names(H$HourlyTD.List)[i] <- paste0(H$ref_TD.hour[i], "_hpf")
+}
+
+#For XTS output.
+H$HourlyTD.xts.List <- list(NULL)
+H$HourlyTD.xts.List.wd <- list(NULL)
+for(i in 1:length(H$ref_TD.hour)){
+  H$HourlyTD.xts.List[i] <- list(xts(H$HourlyTD.List[[paste0(H$ref_TD.hour[i], "_hpf")]][, -1], 
+                                order.by = H$HourlyTD.List[[paste0(H$ref_TD.hour[i], "_hpf")]][, 1]))
+  names(H$HourlyTD.xts.List)[i] <- paste0(H$ref_TD.hour[i], "_hpf.xts")
+  ##Windowing the Hourly Trade Data
+  H$xh <- xts(H$HourlyTD.List[[paste0(H$ref_TD.hour[i], "_hpf")]][, -1], 
+                                order.by = H$HourlyTD.List[[paste0(H$ref_TD.hour[i], "_hpf")]][, 1])
+  H$HourlyTD.xts.List.wd[i] <- list(H$xh[H$wd_ind])
+  names(H$HourlyTD.xts.List.wd)[i] <- paste0(H$ref_TD.hour[i], "_wd_hpf.xts")
+}
+#Read Daily Trade Data
+H$DailyTD.xts.List <- list(NULL)
+H$DailyTD.xts.List <- H$read_daily(H$ref_TD)
+
+#SAVE for Hourly TD_All.
+H$HourlyTD.xts.List.bk <- H$HourlyTD.xts.List
+```
+
+SHFE GOLD
+==================================================
+
+STATUS and DIST {.tabset .tabset-fade}
+-------------------------------------
+
+### STATUS
+
+```{r, include=FALSE}
+H$ind <- 1
+
+#xts output.
+par(mai=c(0.5,0.5,0.5,0.5))
+par(mfcol=c(1,1))
+plot(H$HourlyTD.xts.List[[paste0(H$ref_TD.hour[H$ind], '_hpf.xts')]][, -3],
+     main=paste0("Target 1: ", H$ref_TD.hour.text[H$ind], " Hodrict Presccot Filter"),observation.based = TRUE)
+```
+
+```{r}
+addSeries(H$HourlyTD.xts.List[[paste0(H$ref_TD.hour[H$ind], '_hpf.xts')]][, 3],
+          main=paste0("Target 1: ", H$ref_TD.hour.text[H$ind], " HPFC"))
+```
+
+### 30 DAYS
+
+```{r, include = FALSE}
+#xts output.
+par(mai=c(0.5,0.5,0.5,0.5))
+par(mfcol=c(1,1))
+plot(H$HourlyTD.xts.List.wd[[paste0(H$ref_TD.hour[H$ind], '_wd_hpf.xts')]][, -3],
+     main=paste0("Target: ", H$ref_TD.hour.text[H$ind], " Hodrict Presccot Filter"),observation.based = TRUE)
+```
+
+
+```{r}
+addSeries(H$HourlyTD.xts.List.wd[[paste0(H$ref_TD.hour[H$ind], '_wd_hpf.xts')]][, 3],
+          main=paste0("Target: ", H$ref_TD.hour.text[H$ind], " HPFC"))
+```
+
+### HvD STATUS
+
+```{r}
+#Changed into xts file.
+H$DailyTD.AU0.xts <- H[["DailyTD.xts.List"]][["AU0_hpf.xts"]]
+H$HourlyTD.xts.List$AU0_60_hpf.2.xts <- align.time(H$HourlyTD.xts.List$AU0_60_hpf.xts, 
+                                                     n = 9 * 60*60)
+
+#Align daily trade data with hourly trade data.
+H$MixFreTD.AU0.xts <- merge.xts(H$HourlyTD.xts.List$AU0_60_hpf.2.xts,
+                                 H$DailyTD.AU0.xts,
+                                 join = "left")
+index(H$MixFreTD.AU0.xts) <- index(H$HourlyTD.xts.List$AU0_60_hpf.xts)
+
+#Try Using ggplot2 to show up the result.
+H$x_label <- seq.POSIXt(from = index(H$MixFreTD.AU0.xts)[1], 
+                          to = index(H$MixFreTD.AU0.xts)[dim(H$MixFreTD.AU0.xts)[1]], by = "week")
+H$MixFreTD.AU0.gg <- ggplot(H$MixFreTD.AU0.xts, aes(x = as.factor(index(H$MixFreTD.AU0.xts)), group = 1)) +
+  geom_line(aes(y = AU0_60Close)) + 
+  geom_line(aes(y = AU0_60_hpft), colour = "red") + 
+  geom_point(aes(y = AU0_hpft), colour = "blue", na.rm = TRUE) +
+  scale_x_discrete(breaks = c(as.character(H$x_label)), labels = format(x = H$x_label, format = "%m%d")) +
+  ggtitle("AU0 Hourly and Daily Trend.") + xlab("Trading Date")
+H$MixFreTD.AU0.gg
+```
+
+### H_GHD
+
+```{r, include=FALSE}
+#Functions.======================================
+#Functions to obtain timeSeries dataset.
+H$DataSet_Fetch <- function(ref, suffix){
+  attach(c(H$HourlyTD.xts.List))
+  for(i in 1:min(length(ref), length(suffix))){
+    Fetch.get <- get(paste0(ref[i], suffix[i]))
+    if(i == 1){
+      Return.get <- Fetch.get
+    }else{
+      Return.get <- merge.xts(Return.get, Fetch.get, join = "left")
+    }
+  }
+  Return.get.ts <- timeSeries(Return.get, index(Return.get), format = "%Y-%m-%d %H:%M:%S")
+  #Return desired objects
+  detach(c(H$HourlyTD.xts.List))
+  return(Return.get.ts)
+}
+
+#Preparing Dataset.==============================
+H$DIST.Dataset.H <- H$DataSet_Fetch(H$ref_TD.hour[H$ind], "_hpf.xts")
+H$DIST.Dataset.H.cycle <- na.omit(H$DIST.Dataset.H[, c(paste0(H$ref_TD.hour[H$ind], "_hpfc"))])
+#Fitting Cycle to distribution function.
+H$DIST.H.ycycle <- H$DIST.Dataset.H.cycle[, c(paste0(H$ref_TD.hour[H$ind], "_hpfc"))]
+H$DIST.H.ef <- density(H$DIST.H.ycycle)
+#Density
+H$DIST.H.ghdfit <- fit.ghypuv(H$DIST.H.ycycle, symmetric = FALSE, control = list(maxit = 1000))
+H$DIST.H.ghddense <- dghyp(H$DIST.H.ef$x, H$DIST.H.ghdfit)
+H$DIST.H.col.def <- c("black", "blue")
+#VaR and ES
+H$DIST.H.p <- seq(0.001, 0.05, 0.001)
+H$DIST.H.VaR <- abs(qghyp(H$DIST.H.p, H$DIST.H.ghdfit))
+H$DIST.H.emp.VaR <- abs(quantile(x = H$DIST.H.ycycle, probs = H$DIST.H.p))
+H$DIST.H.ES <- abs(ESghyp(H$DIST.H.p, H$DIST.H.ghdfit))
+H$DIST.H.obs.p <- ceiling(H$DIST.H.p * length(H$DIST.H.ycycle))
+H$DIST.H.emp.ES <- sapply(H$DIST.H.obs.p, function(x) abs(mean(sort(c(H$DIST.H.ycycle))[1:x])))
+```
+
+```{r}
+
+par(mfcol = c(1, 3))
+#Cycle
+plot(H$DIST.H.ef, xlab = paste0(H$ref_TD.hour[H$ind], " Cycle"), ylab = expression(f(x)), 
+     ylim = c(0, max(H$DIST.H.ef$y*1.2)), main = paste0("Distribution of ", H$ref_TD.hour[H$ind], " Cycle"))
+lines(H$DIST.H.ef$x, H$DIST.H.ghddense, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+#VaR
+plot(H$DIST.H.emp.VaR, type = "l", xlab = "", ylab = "VaR", axes = FALSE, ylim = range(c(H$DIST.H.emp.VaR)),
+     main = paste0("Value at Risk of ", H$ref_TD.hour[H$ind], " Cycle"))
+box()
+axis(1, at = seq(along = H$DIST.H.p), labels = names(H$DIST.H.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.H.emp.VaR)))
+lines(seq(along = H$DIST.H.p), H$DIST.H.VaR, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+#ES
+plot(H$DIST.H.emp.ES, type = "l", xlab = "", ylab = "ES", axes = FALSE, ylim = range(c(H$DIST.H.emp.ES)), 
+     main = paste0("Expected Shortfall of ", H$ref_TD.hour[H$ind], " Cycle"))
+box()
+axis(1, at = 1:length(H$DIST.H.p), labels = names(H$DIST.H.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.H.emp.ES)))
+lines(1:length(H$DIST.H.p), H$DIST.H.ES, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+par(mfcol = c(1,1))
+```
+
+### D_GHD
+
+```{r, include=FALSE}
+##Functions.=====================================
+H$DataSet_Fetch_D <- function(ref, suffix){
+  attach(c(H$DailyTD.xts.List))
+  for(i in 1:min(length(ref), length(suffix))){
+    Fetch.get <- get(paste0(ref[i], suffix[i]))
+    if(i == 1){
+      Return.get <- Fetch.get
+    }else{
+      Return.get <- merge.xts(Return.get, Fetch.get, join = "left")
+    }
+  }
+  Return.get.ts <- timeSeries(Return.get, index(Return.get), format = "%Y-%m-%d %H:%M:%S")
+  #Return desired objects
+  detach(c(H$DailyTD.xts.List))
+  return(Return.get.ts)
+}
+
+#Fetching Dataset.
+H$DIST.Dataset.D <- H$DataSet_Fetch_D(H$ref_TD[H$ind], "_hpf.xts")
+H$DIST.Dataset.D.cycle <- na.omit(H$DIST.Dataset.D[, c(paste0(H$ref_TD[H$ind], "_hpfc"))])
+#Fitting Cycle to distribution function.
+H$DIST.D.ycycle <- H$DIST.Dataset.D.cycle[, c(paste0(H$ref_TD[H$ind], "_hpfc"))]
+H$DIST.D.ef <- density(H$DIST.D.ycycle)
+#Density
+H$DIST.D.ghdfit <- fit.ghypuv(H$DIST.D.ycycle, symmetric = FALSE, control = list(maxit = 1000))
+H$DIST.D.ghddense <- dghyp(H$DIST.D.ef$x, H$DIST.D.ghdfit)
+H$DIST.D.col.def <- c("black", "red")
+#VaR and ES
+H$DIST.D.p <- seq(0.001, 0.05, 0.001)
+H$DIST.D.VaR <- abs(qghyp(H$DIST.D.p, H$DIST.D.ghdfit))
+H$DIST.D.emp.VaR <- abs(quantile(x = H$DIST.D.ycycle, probs = H$DIST.D.p))
+H$DIST.D.ES <- abs(ESghyp(H$DIST.D.p, H$DIST.D.ghdfit))
+H$DIST.D.obs.p <- ceiling(H$DIST.D.p * length(H$DIST.D.ycycle))
+H$DIST.D.emp.ES <- sapply(H$DIST.D.obs.p, function(x) abs(mean(sort(c(H$DIST.D.ycycle))[1:x])))
+```
+
+```{r}
+
+par(mfcol = c(1, 3))
+#Cycle
+plot(H$DIST.D.ef, xlab = paste0(H$ref_TD[H$ind], " Cycle"), ylab = expression(f(x)), 
+     ylim = c(0, max(H$DIST.D.ef$y*1.2)), main = paste0("Distribution of ", H$ref_TD[H$ind], " Cycle"))
+lines(H$DIST.D.ef$x, H$DIST.D.ghddense, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+#VaR
+plot(H$DIST.D.emp.VaR, type = "l", xlab = "", ylab = "VaR", axes = FALSE, ylim = range(c(H$DIST.D.emp.VaR)),
+     main = paste0("Value at Risk of ", H$ref_TD[H$ind], " Cycle"))
+box()
+axis(1, at = seq(along = H$DIST.D.p), labels = names(H$DIST.D.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.D.emp.VaR)))
+lines(seq(along = H$DIST.D.p), H$DIST.D.VaR, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+#ES
+plot(H$DIST.D.emp.ES, type = "l", xlab = "", ylab = "ES", axes = FALSE, ylim = range(c(H$DIST.D.emp.ES)), 
+     main = paste0("Expected Shortfall of ", H$ref_TD[H$ind], " Cycle"))
+box()
+axis(1, at = 1:length(H$DIST.D.p), labels = names(H$DIST.D.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.D.emp.ES)))
+lines(1:length(H$DIST.D.p), H$DIST.D.ES, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+par(mfcol = c(1,1))
+```
+
+### GPD_VaRnES
+
+```{r, paged.print=TRUE}
+H$GPD.H.cycle.tg1 <- H$DIST.H.ycycle
+H$GPD.D.cycle.tg1 <- H$DIST.D.ycycle
+
+##GPD
+H$GPD.H.fit.tg1 <- gpdFit(H$GPD.H.cycle.tg1, u = 8)
+H$GPD.H.VaRES.tg1 <- round(gpdRiskMeasures(H$GPD.H.fit.tg1, prob = H$prob.ind),
+                           digits = 3)
+H$GPD.D.fit.tg1 <- gpdFit(H$GPD.D.cycle.tg1, u = 15)
+H$GPD.D.VaRES.tg1 <- round(gpdRiskMeasures(H$GPD.D.fit.tg1, prob = H$prob.ind),
+                           digits = 3)
+##Output Table
+H$GPD.H.VaRES.tg1.gg <- ggtexttable(H$GPD.H.VaRES.tg1, 
+                                    cols = c("Prob", "VaR", "ES"),
+                                    theme = ttheme(colnames.style = colnames_style(color = "pink", 
+                                                                                   fill = "yellow",
+                                                                                   size = 20),
+                                                   tbody.style = tbody_style(size = 20))
+                                    )
+H$GPD.D.VaRES.tg1.gg <- ggtexttable(H$GPD.D.VaRES.tg1, 
+                                    cols = c("Prob", "VaR", "ES"),
+                                    theme = ttheme(colnames.style = colnames_style(color = "white", 
+                                                                                   fill = "orange",
+                                                                                   size = 20),
+                                                   tbody.style = tbody_style(size = 20))
+                                    )
+H$GPD.H.VaRES.tg1.gg.output <- ggarrange(H$GPD.H.VaRES.tg1.gg, 
+                                         H$GPD.D.VaRES.tg1.gg,
+                                         ncol = 2, nrow = 1)
+annotate_figure(H$GPD.H.VaRES.tg1.gg.output, top = text_grob(
+  paste0("VaR and ES under GPD of ", H$ref_TD.hour[H$ind], " and ", H$ref_TD[H$ind], "."),
+  size = 20, vjust = 5
+  ))
+```
+
+CFFEX 10YR TREASURY
+==================================================
+
+STATUS and DIST {.tabset .tabset-fade}
+-------------------------------------
+
+### STATUS
+
+```{r, include=FALSE}
+H$ind <- 2
+
+#xts output.
+par(mai=c(0.5,0.5,0.5,0.5))
+par(mfcol=c(1,1))
+plot(H$HourlyTD.xts.List[[paste0(H$ref_TD.hour[H$ind], '_hpf.xts')]][, -3],
+     main=paste0("Target 1: ", H$ref_TD.hour.text[H$ind], " Hodrict Presccot Filter"),observation.based = TRUE)
+```
+
+```{r}
+addSeries(H$HourlyTD.xts.List[[paste0(H$ref_TD.hour[H$ind], '_hpf.xts')]][, 3],
+          main=paste0("Target 1: ", H$ref_TD.hour.text[H$ind], " HPFC"))
+```
+
+### 30 DAYS
+
+```{r, include = FALSE}
+#xts output.
+par(mai=c(0.5,0.5,0.5,0.5))
+par(mfcol=c(1,1))
+plot(H$HourlyTD.xts.List.wd[[paste0(H$ref_TD.hour[H$ind], '_wd_hpf.xts')]][, -3],
+     main=paste0("Target: ", H$ref_TD.hour.text[H$ind], " Hodrict Presccot Filter"),observation.based = TRUE)
+```
+
+
+```{r}
+addSeries(H$HourlyTD.xts.List.wd[[paste0(H$ref_TD.hour[H$ind], '_wd_hpf.xts')]][, 3],
+          main=paste0("Target: ", H$ref_TD.hour.text[H$ind], " HPFC"))
+```
+
+### HvD STATUS
+
+```{r}
+#Changed into xts file.
+H$DailyTD.T00C1.xts <- H[["DailyTD.xts.List"]][["T00C1_hpf.xts"]]
+H$HourlyTD.xts.List$T00C1_60_hpf.2.xts <- align.time(H$HourlyTD.xts.List$T00C1_60_hpf.xts, 
+                                                     n = 9 * 60*60)
+
+#Align daily trade data with hourly trade data.
+H$MixFreTD.T00C1.xts <- merge.xts(H$HourlyTD.xts.List$T00C1_60_hpf.2.xts,
+                                 H$DailyTD.T00C1.xts,
+                                 join = "left")
+index(H$MixFreTD.T00C1.xts) <- index(H$HourlyTD.xts.List$T00C1_60_hpf.xts)
+
+#Try Using ggplot2 to show up the result.
+H$x_label <- seq.POSIXt(from = index(H$MixFreTD.T00C1.xts)[1], 
+                          to = index(H$MixFreTD.T00C1.xts)[dim(H$MixFreTD.T00C1.xts)[1]], by = "week")
+H$MixFreTD.T00C1.gg <- ggplot(H$MixFreTD.T00C1.xts, aes(x = as.factor(index(H$MixFreTD.T00C1.xts)), group = 1)) +
+  geom_line(aes(y = T00C1_60Close)) + 
+  geom_line(aes(y = T00C1_60_hpft), colour = "red") + 
+  geom_point(aes(y = T00C1_hpft), colour = "blue", na.rm = TRUE) +
+  scale_x_discrete(breaks = c(as.character(H$x_label)), labels = format(x = H$x_label, format = "%m%d")) +
+  ggtitle("T00C1 Hourly and Daily Trend.") + xlab("Trading Date")
+H$MixFreTD.T00C1.gg
+```
+
+### H_GHD
+
+```{r, include=FALSE}
+#Functions.======================================
+#Functions to obtain timeSeries dataset.
+H$DataSet_Fetch <- function(ref, suffix){
+  attach(c(H$HourlyTD.xts.List))
+  for(i in 1:min(length(ref), length(suffix))){
+    Fetch.get <- get(paste0(ref[i], suffix[i]))
+    if(i == 1){
+      Return.get <- Fetch.get
+    }else{
+      Return.get <- merge.xts(Return.get, Fetch.get, join = "left")
+    }
+  }
+  Return.get.ts <- timeSeries(Return.get, index(Return.get), format = "%Y-%m-%d %H:%M:%S")
+  #Return desired objects
+  detach(c(H$HourlyTD.xts.List))
+  return(Return.get.ts)
+}
+
+#Preparing Dataset.==============================
+H$DIST.Dataset.H <- H$DataSet_Fetch(H$ref_TD.hour[H$ind], "_hpf.xts")
+H$DIST.Dataset.H.cycle <- na.omit(H$DIST.Dataset.H[, c(paste0(H$ref_TD.hour[H$ind], "_hpfc"))])
+#Fitting Cycle to distribution function.
+H$DIST.H.ycycle <- H$DIST.Dataset.H.cycle[, c(paste0(H$ref_TD.hour[H$ind], "_hpfc"))]
+H$DIST.H.ef <- density(H$DIST.H.ycycle)
+#Density
+H$DIST.H.ghdfit <- fit.ghypuv(H$DIST.H.ycycle, symmetric = FALSE, control = list(maxit = 1000))
+H$DIST.H.ghddense <- dghyp(H$DIST.H.ef$x, H$DIST.H.ghdfit)
+H$DIST.H.col.def <- c("black", "blue")
+#VaR and ES
+H$DIST.H.p <- seq(0.001, 0.05, 0.001)
+H$DIST.H.VaR <- abs(qghyp(H$DIST.H.p, H$DIST.H.ghdfit))
+H$DIST.H.emp.VaR <- abs(quantile(x = H$DIST.H.ycycle, probs = H$DIST.H.p))
+H$DIST.H.ES <- abs(ESghyp(H$DIST.H.p, H$DIST.H.ghdfit))
+H$DIST.H.obs.p <- ceiling(H$DIST.H.p * length(H$DIST.H.ycycle))
+H$DIST.H.emp.ES <- sapply(H$DIST.H.obs.p, function(x) abs(mean(sort(c(H$DIST.H.ycycle))[1:x])))
+```
+
+```{r}
+
+par(mfcol = c(1, 3))
+#Cycle
+plot(H$DIST.H.ef, xlab = paste0(H$ref_TD.hour[H$ind], " Cycle"), ylab = expression(f(x)), 
+     ylim = c(0, max(H$DIST.H.ef$y*1.2)), main = paste0("Distribution of ", H$ref_TD.hour[H$ind], " Cycle"))
+lines(H$DIST.H.ef$x, H$DIST.H.ghddense, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+#VaR
+plot(H$DIST.H.emp.VaR, type = "l", xlab = "", ylab = "VaR", axes = FALSE, ylim = range(c(H$DIST.H.emp.VaR)),
+     main = paste0("Value at Risk of ", H$ref_TD.hour[H$ind], " Cycle"))
+box()
+axis(1, at = seq(along = H$DIST.H.p), labels = names(H$DIST.H.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.H.emp.VaR)))
+lines(seq(along = H$DIST.H.p), H$DIST.H.VaR, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+#ES
+plot(H$DIST.H.emp.ES, type = "l", xlab = "", ylab = "ES", axes = FALSE, ylim = range(c(H$DIST.H.emp.ES)), 
+     main = paste0("Expected Shortfall of ", H$ref_TD.hour[H$ind], " Cycle"))
+box()
+axis(1, at = 1:length(H$DIST.H.p), labels = names(H$DIST.H.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.H.emp.ES)))
+lines(1:length(H$DIST.H.p), H$DIST.H.ES, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+par(mfcol = c(1,1))
+```
+
+### D_GHD
+
+```{r, include=FALSE}
+##Functions.=====================================
+H$DataSet_Fetch_D <- function(ref, suffix){
+  attach(c(H$DailyTD.xts.List))
+  for(i in 1:min(length(ref), length(suffix))){
+    Fetch.get <- get(paste0(ref[i], suffix[i]))
+    if(i == 1){
+      Return.get <- Fetch.get
+    }else{
+      Return.get <- merge.xts(Return.get, Fetch.get, join = "left")
+    }
+  }
+  Return.get.ts <- timeSeries(Return.get, index(Return.get), format = "%Y-%m-%d %H:%M:%S")
+  #Return desired objects
+  detach(c(H$DailyTD.xts.List))
+  return(Return.get.ts)
+}
+
+#Fetching Dataset.
+H$DIST.Dataset.D <- H$DataSet_Fetch_D(H$ref_TD[H$ind], "_hpf.xts")
+H$DIST.Dataset.D.cycle <- na.omit(H$DIST.Dataset.D[, c(paste0(H$ref_TD[H$ind], "_hpfc"))])
+#Fitting Cycle to distribution function.
+H$DIST.D.ycycle <- H$DIST.Dataset.D.cycle[, c(paste0(H$ref_TD[H$ind], "_hpfc"))]
+H$DIST.D.ef <- density(H$DIST.D.ycycle)
+#Density
+H$DIST.D.ghdfit <- fit.ghypuv(H$DIST.D.ycycle, symmetric = FALSE, control = list(maxit = 1000))
+H$DIST.D.ghddense <- dghyp(H$DIST.D.ef$x, H$DIST.D.ghdfit)
+H$DIST.D.col.def <- c("black", "red")
+#VaR and ES
+H$DIST.D.p <- seq(0.001, 0.05, 0.001)
+H$DIST.D.VaR <- abs(qghyp(H$DIST.D.p, H$DIST.D.ghdfit))
+H$DIST.D.emp.VaR <- abs(quantile(x = H$DIST.D.ycycle, probs = H$DIST.D.p))
+H$DIST.D.ES <- abs(ESghyp(H$DIST.D.p, H$DIST.D.ghdfit))
+H$DIST.D.obs.p <- ceiling(H$DIST.D.p * length(H$DIST.D.ycycle))
+H$DIST.D.emp.ES <- sapply(H$DIST.D.obs.p, function(x) abs(mean(sort(c(H$DIST.D.ycycle))[1:x])))
+```
+
+```{r}
+
+par(mfcol = c(1, 3))
+#Cycle
+plot(H$DIST.D.ef, xlab = paste0(H$ref_TD[H$ind], " Cycle"), ylab = expression(f(x)), 
+     ylim = c(0, max(H$DIST.D.ef$y*1.2)), main = paste0("Distribution of ", H$ref_TD[H$ind], " Cycle"))
+lines(H$DIST.D.ef$x, H$DIST.D.ghddense, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+#VaR
+plot(H$DIST.D.emp.VaR, type = "l", xlab = "", ylab = "VaR", axes = FALSE, ylim = range(c(H$DIST.D.emp.VaR)),
+     main = paste0("Value at Risk of ", H$ref_TD[H$ind], " Cycle"))
+box()
+axis(1, at = seq(along = H$DIST.D.p), labels = names(H$DIST.D.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.D.emp.VaR)))
+lines(seq(along = H$DIST.D.p), H$DIST.D.VaR, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+#ES
+plot(H$DIST.D.emp.ES, type = "l", xlab = "", ylab = "ES", axes = FALSE, ylim = range(c(H$DIST.D.emp.ES)), 
+     main = paste0("Expected Shortfall of ", H$ref_TD[H$ind], " Cycle"))
+box()
+axis(1, at = 1:length(H$DIST.D.p), labels = names(H$DIST.D.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.D.emp.ES)))
+lines(1:length(H$DIST.D.p), H$DIST.D.ES, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+par(mfcol = c(1,1))
+```
+
+### GPD_VaRnES
+
+```{r, paged.print=TRUE}
+H$GPD.H.cycle.tg1 <- H$DIST.H.ycycle
+H$GPD.D.cycle.tg1 <- H$DIST.D.ycycle
+
+##GPD
+H$GPD.H.fit.tg1 <- gpdFit(H$GPD.H.cycle.tg1, u = 0.4)
+H$GPD.H.VaRES.tg1 <- round(gpdRiskMeasures(H$GPD.H.fit.tg1, prob = H$prob.ind),
+                           digits = 3)
+H$GPD.D.fit.tg1 <- gpdFit(H$GPD.D.cycle.tg1, u = 1.2)
+H$GPD.D.VaRES.tg1 <- round(gpdRiskMeasures(H$GPD.D.fit.tg1, prob = H$prob.ind),
+                           digits = 3)
+##Output Table
+H$GPD.H.VaRES.tg1.gg <- ggtexttable(H$GPD.H.VaRES.tg1, 
+                                    cols = c("Prob", "VaR", "ES"),
+                                    theme = ttheme(colnames.style = colnames_style(color = "pink", 
+                                                                                   fill = "yellow",
+                                                                                   size = 20),
+                                                   tbody.style = tbody_style(size = 20))
+                                    )
+H$GPD.D.VaRES.tg1.gg <- ggtexttable(H$GPD.D.VaRES.tg1, 
+                                    cols = c("Prob", "VaR", "ES"),
+                                    theme = ttheme(colnames.style = colnames_style(color = "white", 
+                                                                                   fill = "orange",
+                                                                                   size = 20),
+                                                   tbody.style = tbody_style(size = 20))
+                                    )
+H$GPD.H.VaRES.tg1.gg.output <- ggarrange(H$GPD.H.VaRES.tg1.gg, 
+                                         H$GPD.D.VaRES.tg1.gg,
+                                         ncol = 2, nrow = 1)
+annotate_figure(H$GPD.H.VaRES.tg1.gg.output, top = text_grob(
+  paste0("VaR and ES under GPD of ", H$ref_TD.hour[H$ind], " and ", H$ref_TD[H$ind], "."),
+  size = 20, vjust = 5
+  ))
+```
+
+DCE IRONORE
+==================================================
+
+STATUS and DIST {.tabset .tabset-fade}
+-------------------------------------
+
+### STATUS
+
+```{r, include=FALSE}
+H$ind <- 3
+
+#xts output.
+par(mai=c(0.5,0.5,0.5,0.5))
+par(mfcol=c(1,1))
+plot(H$HourlyTD.xts.List[[paste0(H$ref_TD.hour[H$ind], '_hpf.xts')]][, -3],
+     main=paste0("Target 1: ", H$ref_TD.hour.text[H$ind], " Hodrict Presccot Filter"),observation.based = TRUE)
+```
+
+```{r}
+addSeries(H$HourlyTD.xts.List[[paste0(H$ref_TD.hour[H$ind], '_hpf.xts')]][, 3],
+          main=paste0("Target 1: ", H$ref_TD.hour.text[H$ind], " HPFC"))
+```
+
+### 30 DAYS
+
+```{r, include = FALSE}
+#xts output.
+par(mai=c(0.5,0.5,0.5,0.5))
+par(mfcol=c(1,1))
+plot(H$HourlyTD.xts.List.wd[[paste0(H$ref_TD.hour[H$ind], '_wd_hpf.xts')]][, -3],
+     main=paste0("Target: ", H$ref_TD.hour.text[H$ind], " Hodrict Presccot Filter"),observation.based = TRUE)
+```
+
+
+```{r}
+addSeries(H$HourlyTD.xts.List.wd[[paste0(H$ref_TD.hour[H$ind], '_wd_hpf.xts')]][, 3],
+          main=paste0("Target: ", H$ref_TD.hour.text[H$ind], " HPFC"))
+```
+
+### HvD STATUS
+
+```{r}
+#Changed into xts file.
+H$DailyTD.I0.xts <- H[["DailyTD.xts.List"]][["I0_hpf.xts"]]
+H$HourlyTD.xts.List$I0_60_hpf.2.xts <- align.time(H$HourlyTD.xts.List$I0_60_hpf.xts, 
+                                                     n = 9 * 60*60)
+
+#Align daily trade data with hourly trade data.
+H$MixFreTD.I0.xts <- merge.xts(H$HourlyTD.xts.List$I0_60_hpf.2.xts,
+                                 H$DailyTD.I0.xts,
+                                 join = "left")
+index(H$MixFreTD.I0.xts) <- index(H$HourlyTD.xts.List$I0_60_hpf.xts)
+
+#Try Using ggplot2 to show up the result.
+H$x_label <- seq.POSIXt(from = index(H$MixFreTD.I0.xts)[1], 
+                          to = index(H$MixFreTD.I0.xts)[dim(H$MixFreTD.I0.xts)[1]], by = "week")
+H$MixFreTD.I0.gg <- ggplot(H$MixFreTD.I0.xts, aes(x = as.factor(index(H$MixFreTD.I0.xts)), group = 1)) +
+  geom_line(aes(y = I0_60Close)) + 
+  geom_line(aes(y = I0_60_hpft), colour = "red") + 
+  geom_point(aes(y = I0_hpft), colour = "blue", na.rm = TRUE) +
+  scale_x_discrete(breaks = c(as.character(H$x_label)), labels = format(x = H$x_label, format = "%m%d")) +
+  ggtitle("I0 Hourly and Daily Trend.") + xlab("Trading Date")
+H$MixFreTD.I0.gg
+```
+
+### H_GHD
+
+```{r, include=FALSE}
+#Functions.======================================
+#Functions to obtain timeSeries dataset.
+H$DataSet_Fetch <- function(ref, suffix){
+  attach(c(H$HourlyTD.xts.List))
+  for(i in 1:min(length(ref), length(suffix))){
+    Fetch.get <- get(paste0(ref[i], suffix[i]))
+    if(i == 1){
+      Return.get <- Fetch.get
+    }else{
+      Return.get <- merge.xts(Return.get, Fetch.get, join = "left")
+    }
+  }
+  Return.get.ts <- timeSeries(Return.get, index(Return.get), format = "%Y-%m-%d %H:%M:%S")
+  #Return desired objects
+  detach(c(H$HourlyTD.xts.List))
+  return(Return.get.ts)
+}
+
+#Preparing Dataset.==============================
+H$DIST.Dataset.H <- H$DataSet_Fetch(H$ref_TD.hour[H$ind], "_hpf.xts")
+H$DIST.Dataset.H.cycle <- na.omit(H$DIST.Dataset.H[, c(paste0(H$ref_TD.hour[H$ind], "_hpfc"))])
+#Fitting Cycle to distribution function.
+H$DIST.H.ycycle <- H$DIST.Dataset.H.cycle[, c(paste0(H$ref_TD.hour[H$ind], "_hpfc"))]
+H$DIST.H.ef <- density(H$DIST.H.ycycle)
+#Density
+H$DIST.H.ghdfit <- fit.ghypuv(H$DIST.H.ycycle, symmetric = FALSE, control = list(maxit = 1000))
+H$DIST.H.ghddense <- dghyp(H$DIST.H.ef$x, H$DIST.H.ghdfit)
+H$DIST.H.col.def <- c("black", "blue")
+#VaR and ES
+H$DIST.H.p <- seq(0.001, 0.05, 0.001)
+H$DIST.H.VaR <- abs(qghyp(H$DIST.H.p, H$DIST.H.ghdfit))
+H$DIST.H.emp.VaR <- abs(quantile(x = H$DIST.H.ycycle, probs = H$DIST.H.p))
+H$DIST.H.ES <- abs(ESghyp(H$DIST.H.p, H$DIST.H.ghdfit))
+H$DIST.H.obs.p <- ceiling(H$DIST.H.p * length(H$DIST.H.ycycle))
+H$DIST.H.emp.ES <- sapply(H$DIST.H.obs.p, function(x) abs(mean(sort(c(H$DIST.H.ycycle))[1:x])))
+```
+
+```{r}
+
+par(mfcol = c(1, 3))
+#Cycle
+plot(H$DIST.H.ef, xlab = paste0(H$ref_TD.hour[H$ind], " Cycle"), ylab = expression(f(x)), 
+     ylim = c(0, max(H$DIST.H.ef$y*1.2)), main = paste0("Distribution of ", H$ref_TD.hour[H$ind], " Cycle"))
+lines(H$DIST.H.ef$x, H$DIST.H.ghddense, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+#VaR
+plot(H$DIST.H.emp.VaR, type = "l", xlab = "", ylab = "VaR", axes = FALSE, ylim = range(c(H$DIST.H.emp.VaR)),
+     main = paste0("Value at Risk of ", H$ref_TD.hour[H$ind], " Cycle"))
+box()
+axis(1, at = seq(along = H$DIST.H.p), labels = names(H$DIST.H.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.H.emp.VaR)))
+lines(seq(along = H$DIST.H.p), H$DIST.H.VaR, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+#ES
+plot(H$DIST.H.emp.ES, type = "l", xlab = "", ylab = "ES", axes = FALSE, ylim = range(c(H$DIST.H.emp.ES)), 
+     main = paste0("Expected Shortfall of ", H$ref_TD.hour[H$ind], " Cycle"))
+box()
+axis(1, at = 1:length(H$DIST.H.p), labels = names(H$DIST.H.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.H.emp.ES)))
+lines(1:length(H$DIST.H.p), H$DIST.H.ES, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+par(mfcol = c(1,1))
+```
+
+### D_GHD
+
+```{r, include=FALSE}
+##Functions.=====================================
+H$DataSet_Fetch_D <- function(ref, suffix){
+  attach(c(H$DailyTD.xts.List))
+  for(i in 1:min(length(ref), length(suffix))){
+    Fetch.get <- get(paste0(ref[i], suffix[i]))
+    if(i == 1){
+      Return.get <- Fetch.get
+    }else{
+      Return.get <- merge.xts(Return.get, Fetch.get, join = "left")
+    }
+  }
+  Return.get.ts <- timeSeries(Return.get, index(Return.get), format = "%Y-%m-%d %H:%M:%S")
+  #Return desired objects
+  detach(c(H$DailyTD.xts.List))
+  return(Return.get.ts)
+}
+
+#Fetching Dataset.
+H$DIST.Dataset.D <- H$DataSet_Fetch_D(H$ref_TD[H$ind], "_hpf.xts")
+H$DIST.Dataset.D.cycle <- na.omit(H$DIST.Dataset.D[, c(paste0(H$ref_TD[H$ind], "_hpfc"))])
+#Fitting Cycle to distribution function.
+H$DIST.D.ycycle <- H$DIST.Dataset.D.cycle[, c(paste0(H$ref_TD[H$ind], "_hpfc"))]
+H$DIST.D.ef <- density(H$DIST.D.ycycle)
+#Density
+H$DIST.D.ghdfit <- fit.ghypuv(H$DIST.D.ycycle, symmetric = FALSE, control = list(maxit = 1000))
+H$DIST.D.ghddense <- dghyp(H$DIST.D.ef$x, H$DIST.D.ghdfit)
+H$DIST.D.col.def <- c("black", "red")
+#VaR and ES
+H$DIST.D.p <- seq(0.001, 0.05, 0.001)
+H$DIST.D.VaR <- abs(qghyp(H$DIST.D.p, H$DIST.D.ghdfit))
+H$DIST.D.emp.VaR <- abs(quantile(x = H$DIST.D.ycycle, probs = H$DIST.D.p))
+H$DIST.D.ES <- abs(ESghyp(H$DIST.D.p, H$DIST.D.ghdfit))
+H$DIST.D.obs.p <- ceiling(H$DIST.D.p * length(H$DIST.D.ycycle))
+H$DIST.D.emp.ES <- sapply(H$DIST.D.obs.p, function(x) abs(mean(sort(c(H$DIST.D.ycycle))[1:x])))
+```
+
+```{r}
+
+par(mfcol = c(1, 3))
+#Cycle
+plot(H$DIST.D.ef, xlab = paste0(H$ref_TD[H$ind], " Cycle"), ylab = expression(f(x)), 
+     ylim = c(0, max(H$DIST.D.ef$y*1.2)), main = paste0("Distribution of ", H$ref_TD[H$ind], " Cycle"))
+lines(H$DIST.D.ef$x, H$DIST.D.ghddense, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+#VaR
+plot(H$DIST.D.emp.VaR, type = "l", xlab = "", ylab = "VaR", axes = FALSE, ylim = range(c(H$DIST.D.emp.VaR)),
+     main = paste0("Value at Risk of ", H$ref_TD[H$ind], " Cycle"))
+box()
+axis(1, at = seq(along = H$DIST.D.p), labels = names(H$DIST.D.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.D.emp.VaR)))
+lines(seq(along = H$DIST.D.p), H$DIST.D.VaR, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+#ES
+plot(H$DIST.D.emp.ES, type = "l", xlab = "", ylab = "ES", axes = FALSE, ylim = range(c(H$DIST.D.emp.ES)), 
+     main = paste0("Expected Shortfall of ", H$ref_TD[H$ind], " Cycle"))
+box()
+axis(1, at = 1:length(H$DIST.D.p), labels = names(H$DIST.D.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.D.emp.ES)))
+lines(1:length(H$DIST.D.p), H$DIST.D.ES, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+par(mfcol = c(1,1))
+```
+
+### GPD_VaRnES
+
+```{r, paged.print=TRUE}
+H$GPD.H.cycle.tg1 <- H$DIST.H.ycycle
+H$GPD.D.cycle.tg1 <- H$DIST.D.ycycle
+
+##GPD
+H$GPD.H.fit.tg1 <- gpdFit(H$GPD.H.cycle.tg1, u = 30)
+H$GPD.H.VaRES.tg1 <- round(gpdRiskMeasures(H$GPD.H.fit.tg1, prob = H$prob.ind),
+                           digits = 3)
+H$GPD.D.fit.tg1 <- gpdFit(H$GPD.D.cycle.tg1, u = 50)
+H$GPD.D.VaRES.tg1 <- round(gpdRiskMeasures(H$GPD.D.fit.tg1, prob = H$prob.ind),
+                           digits = 3)
+##Output Table
+H$GPD.H.VaRES.tg1.gg <- ggtexttable(H$GPD.H.VaRES.tg1, 
+                                    cols = c("Prob", "VaR", "ES"),
+                                    theme = ttheme(colnames.style = colnames_style(color = "pink", 
+                                                                                   fill = "yellow",
+                                                                                   size = 20),
+                                                   tbody.style = tbody_style(size = 20))
+                                    )
+H$GPD.D.VaRES.tg1.gg <- ggtexttable(H$GPD.D.VaRES.tg1, 
+                                    cols = c("Prob", "VaR", "ES"),
+                                    theme = ttheme(colnames.style = colnames_style(color = "white", 
+                                                                                   fill = "orange",
+                                                                                   size = 20),
+                                                   tbody.style = tbody_style(size = 20))
+                                    )
+H$GPD.H.VaRES.tg1.gg.output <- ggarrange(H$GPD.H.VaRES.tg1.gg, 
+                                         H$GPD.D.VaRES.tg1.gg,
+                                         ncol = 2, nrow = 1)
+annotate_figure(H$GPD.H.VaRES.tg1.gg.output, top = text_grob(
+  paste0("VaR and ES under GPD of ", H$ref_TD.hour[H$ind], " and ", H$ref_TD[H$ind], "."),
+  size = 20, vjust = 5
+  ))
+```
+
+SHFE COPPER
+==================================================
+
+STATUS and DIST {.tabset .tabset-fade}
+-------------------------------------
+
+### STATUS
+
+```{r, include=FALSE}
+H$ind <- 4
+
+#xts output.
+par(mai=c(0.5,0.5,0.5,0.5))
+par(mfcol=c(1,1))
+plot(H$HourlyTD.xts.List[[paste0(H$ref_TD.hour[H$ind], '_hpf.xts')]][, -3],
+     main=paste0("Target 1: ", H$ref_TD.hour.text[H$ind], " Hodrict Presccot Filter"),observation.based = TRUE)
+```
+
+```{r}
+addSeries(H$HourlyTD.xts.List[[paste0(H$ref_TD.hour[H$ind], '_hpf.xts')]][, 3],
+          main=paste0("Target 1: ", H$ref_TD.hour.text[H$ind], " HPFC"))
+```
+
+### 30 DAYS
+
+```{r, include = FALSE}
+#xts output.
+par(mai=c(0.5,0.5,0.5,0.5))
+par(mfcol=c(1,1))
+plot(H$HourlyTD.xts.List.wd[[paste0(H$ref_TD.hour[H$ind], '_wd_hpf.xts')]][, -3],
+     main=paste0("Target: ", H$ref_TD.hour.text[H$ind], " Hodrict Presccot Filter"),observation.based = TRUE)
+```
+
+
+```{r}
+addSeries(H$HourlyTD.xts.List.wd[[paste0(H$ref_TD.hour[H$ind], '_wd_hpf.xts')]][, 3],
+          main=paste0("Target: ", H$ref_TD.hour.text[H$ind], " HPFC"))
+```
+
+### HvD STATUS
+
+```{r}
+#Changed into xts file.
+H$DailyTD.CU0.xts <- H[["DailyTD.xts.List"]][["CU0_hpf.xts"]]
+H$HourlyTD.xts.List$CU0_60_hpf.2.xts <- align.time(H$HourlyTD.xts.List$CU0_60_hpf.xts, 
+                                                     n = 9 * 60*60)
+
+#Align daily trade data with hourly trade data.
+H$MixFreTD.CU0.xts <- merge.xts(H$HourlyTD.xts.List$CU0_60_hpf.2.xts,
+                                 H$DailyTD.CU0.xts,
+                                 join = "left")
+index(H$MixFreTD.CU0.xts) <- index(H$HourlyTD.xts.List$CU0_60_hpf.xts)
+
+#Try Using ggplot2 to show up the result.
+H$x_label <- seq.POSIXt(from = index(H$MixFreTD.CU0.xts)[1], 
+                          to = index(H$MixFreTD.CU0.xts)[dim(H$MixFreTD.CU0.xts)[1]], by = "week")
+H$MixFreTD.CU0.gg <- ggplot(H$MixFreTD.CU0.xts, aes(x = as.factor(index(H$MixFreTD.CU0.xts)), group = 1)) +
+  geom_line(aes(y = CU0_60Close)) + 
+  geom_line(aes(y = CU0_60_hpft), colour = "red") + 
+  geom_point(aes(y = CU0_hpft), colour = "blue", na.rm = TRUE) +
+  scale_x_discrete(breaks = c(as.character(H$x_label)), labels = format(x = H$x_label, format = "%m%d")) +
+  ggtitle("CU0 Hourly and Daily Trend.") + xlab("Trading Date")
+H$MixFreTD.CU0.gg
+```
+
+### H_GHD
+
+```{r, include=FALSE}
+#Functions.======================================
+#Functions to obtain timeSeries dataset.
+H$DataSet_Fetch <- function(ref, suffix){
+  attach(c(H$HourlyTD.xts.List))
+  for(i in 1:min(length(ref), length(suffix))){
+    Fetch.get <- get(paste0(ref[i], suffix[i]))
+    if(i == 1){
+      Return.get <- Fetch.get
+    }else{
+      Return.get <- merge.xts(Return.get, Fetch.get, join = "left")
+    }
+  }
+  Return.get.ts <- timeSeries(Return.get, index(Return.get), format = "%Y-%m-%d %H:%M:%S")
+  #Return desired objects
+  detach(c(H$HourlyTD.xts.List))
+  return(Return.get.ts)
+}
+
+#Preparing Dataset.==============================
+H$DIST.Dataset.H <- H$DataSet_Fetch(H$ref_TD.hour[H$ind], "_hpf.xts")
+H$DIST.Dataset.H.cycle <- na.omit(H$DIST.Dataset.H[, c(paste0(H$ref_TD.hour[H$ind], "_hpfc"))])
+#Fitting Cycle to distribution function.
+H$DIST.H.ycycle <- H$DIST.Dataset.H.cycle[, c(paste0(H$ref_TD.hour[H$ind], "_hpfc"))]
+H$DIST.H.ef <- density(H$DIST.H.ycycle)
+#Density
+H$DIST.H.ghdfit <- fit.ghypuv(H$DIST.H.ycycle, symmetric = FALSE, control = list(maxit = 1000))
+H$DIST.H.ghddense <- dghyp(H$DIST.H.ef$x, H$DIST.H.ghdfit)
+H$DIST.H.col.def <- c("black", "blue")
+#VaR and ES
+H$DIST.H.p <- seq(0.001, 0.05, 0.001)
+H$DIST.H.VaR <- abs(qghyp(H$DIST.H.p, H$DIST.H.ghdfit))
+H$DIST.H.emp.VaR <- abs(quantile(x = H$DIST.H.ycycle, probs = H$DIST.H.p))
+H$DIST.H.ES <- abs(ESghyp(H$DIST.H.p, H$DIST.H.ghdfit))
+H$DIST.H.obs.p <- ceiling(H$DIST.H.p * length(H$DIST.H.ycycle))
+H$DIST.H.emp.ES <- sapply(H$DIST.H.obs.p, function(x) abs(mean(sort(c(H$DIST.H.ycycle))[1:x])))
+```
+
+```{r}
+
+par(mfcol = c(1, 3))
+#Cycle
+plot(H$DIST.H.ef, xlab = paste0(H$ref_TD.hour[H$ind], " Cycle"), ylab = expression(f(x)), 
+     ylim = c(0, max(H$DIST.H.ef$y*1.2)), main = paste0("Distribution of ", H$ref_TD.hour[H$ind], " Cycle"))
+lines(H$DIST.H.ef$x, H$DIST.H.ghddense, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+#VaR
+plot(H$DIST.H.emp.VaR, type = "l", xlab = "", ylab = "VaR", axes = FALSE, ylim = range(c(H$DIST.H.emp.VaR)),
+     main = paste0("Value at Risk of ", H$ref_TD.hour[H$ind], " Cycle"))
+box()
+axis(1, at = seq(along = H$DIST.H.p), labels = names(H$DIST.H.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.H.emp.VaR)))
+lines(seq(along = H$DIST.H.p), H$DIST.H.VaR, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+#ES
+plot(H$DIST.H.emp.ES, type = "l", xlab = "", ylab = "ES", axes = FALSE, ylim = range(c(H$DIST.H.emp.ES)), 
+     main = paste0("Expected Shortfall of ", H$ref_TD.hour[H$ind], " Cycle"))
+box()
+axis(1, at = 1:length(H$DIST.H.p), labels = names(H$DIST.H.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.H.emp.ES)))
+lines(1:length(H$DIST.H.p), H$DIST.H.ES, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+par(mfcol = c(1,1))
+```
+
+### D_GHD
+
+```{r, include=FALSE}
+##Functions.=====================================
+H$DataSet_Fetch_D <- function(ref, suffix){
+  attach(c(H$DailyTD.xts.List))
+  for(i in 1:min(length(ref), length(suffix))){
+    Fetch.get <- get(paste0(ref[i], suffix[i]))
+    if(i == 1){
+      Return.get <- Fetch.get
+    }else{
+      Return.get <- merge.xts(Return.get, Fetch.get, join = "left")
+    }
+  }
+  Return.get.ts <- timeSeries(Return.get, index(Return.get), format = "%Y-%m-%d %H:%M:%S")
+  #Return desired objects
+  detach(c(H$DailyTD.xts.List))
+  return(Return.get.ts)
+}
+
+#Fetching Dataset.
+H$DIST.Dataset.D <- H$DataSet_Fetch_D(H$ref_TD[H$ind], "_hpf.xts")
+H$DIST.Dataset.D.cycle <- na.omit(H$DIST.Dataset.D[, c(paste0(H$ref_TD[H$ind], "_hpfc"))])
+#Fitting Cycle to distribution function.
+H$DIST.D.ycycle <- H$DIST.Dataset.D.cycle[, c(paste0(H$ref_TD[H$ind], "_hpfc"))]
+H$DIST.D.ef <- density(H$DIST.D.ycycle)
+#Density
+H$DIST.D.ghdfit <- fit.ghypuv(H$DIST.D.ycycle, symmetric = FALSE, control = list(maxit = 1000))
+H$DIST.D.ghddense <- dghyp(H$DIST.D.ef$x, H$DIST.D.ghdfit)
+H$DIST.D.col.def <- c("black", "red")
+#VaR and ES
+H$DIST.D.p <- seq(0.001, 0.05, 0.001)
+H$DIST.D.VaR <- abs(qghyp(H$DIST.D.p, H$DIST.D.ghdfit))
+H$DIST.D.emp.VaR <- abs(quantile(x = H$DIST.D.ycycle, probs = H$DIST.D.p))
+H$DIST.D.ES <- abs(ESghyp(H$DIST.D.p, H$DIST.D.ghdfit))
+H$DIST.D.obs.p <- ceiling(H$DIST.D.p * length(H$DIST.D.ycycle))
+H$DIST.D.emp.ES <- sapply(H$DIST.D.obs.p, function(x) abs(mean(sort(c(H$DIST.D.ycycle))[1:x])))
+```
+
+```{r}
+
+par(mfcol = c(1, 3))
+#Cycle
+plot(H$DIST.D.ef, xlab = paste0(H$ref_TD[H$ind], " Cycle"), ylab = expression(f(x)), 
+     ylim = c(0, max(H$DIST.D.ef$y*1.2)), main = paste0("Distribution of ", H$ref_TD[H$ind], " Cycle"))
+lines(H$DIST.D.ef$x, H$DIST.D.ghddense, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+#VaR
+plot(H$DIST.D.emp.VaR, type = "l", xlab = "", ylab = "VaR", axes = FALSE, ylim = range(c(H$DIST.D.emp.VaR)),
+     main = paste0("Value at Risk of ", H$ref_TD[H$ind], " Cycle"))
+box()
+axis(1, at = seq(along = H$DIST.D.p), labels = names(H$DIST.D.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.D.emp.VaR)))
+lines(seq(along = H$DIST.D.p), H$DIST.D.VaR, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+#ES
+plot(H$DIST.D.emp.ES, type = "l", xlab = "", ylab = "ES", axes = FALSE, ylim = range(c(H$DIST.D.emp.ES)), 
+     main = paste0("Expected Shortfall of ", H$ref_TD[H$ind], " Cycle"))
+box()
+axis(1, at = 1:length(H$DIST.D.p), labels = names(H$DIST.D.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.D.emp.ES)))
+lines(1:length(H$DIST.D.p), H$DIST.D.ES, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+par(mfcol = c(1,1))
+```
+
+### GPD_VaRnES
+
+```{r, paged.print=TRUE}
+H$GPD.H.cycle.tg1 <- H$DIST.H.ycycle
+H$GPD.D.cycle.tg1 <- H$DIST.D.ycycle
+
+##GPD
+H$GPD.H.fit.tg1 <- gpdFit(H$GPD.H.cycle.tg1, u = 1000)
+H$GPD.H.VaRES.tg1 <- round(gpdRiskMeasures(H$GPD.H.fit.tg1, prob = H$prob.ind),
+                           digits = 3)
+H$GPD.D.fit.tg1 <- gpdFit(H$GPD.D.cycle.tg1, u = 3500)
+H$GPD.D.VaRES.tg1 <- round(gpdRiskMeasures(H$GPD.D.fit.tg1, prob = H$prob.ind),
+                           digits = 3)
+##Output Table
+H$GPD.H.VaRES.tg1.gg <- ggtexttable(H$GPD.H.VaRES.tg1, 
+                                    cols = c("Prob", "VaR", "ES"),
+                                    theme = ttheme(colnames.style = colnames_style(color = "pink", 
+                                                                                   fill = "yellow",
+                                                                                   size = 20),
+                                                   tbody.style = tbody_style(size = 20))
+                                    )
+H$GPD.D.VaRES.tg1.gg <- ggtexttable(H$GPD.D.VaRES.tg1, 
+                                    cols = c("Prob", "VaR", "ES"),
+                                    theme = ttheme(colnames.style = colnames_style(color = "white", 
+                                                                                   fill = "orange",
+                                                                                   size = 20),
+                                                   tbody.style = tbody_style(size = 20))
+                                    )
+H$GPD.H.VaRES.tg1.gg.output <- ggarrange(H$GPD.H.VaRES.tg1.gg, 
+                                         H$GPD.D.VaRES.tg1.gg,
+                                         ncol = 2, nrow = 1)
+annotate_figure(H$GPD.H.VaRES.tg1.gg.output, top = text_grob(
+  paste0("VaR and ES under GPD of ", H$ref_TD.hour[H$ind], " and ", H$ref_TD[H$ind], "."),
+  size = 20, vjust = 5
+  ))
+```
+
+CFFEX A50 INDEX
+==================================================
+
+STATUS and DIST {.tabset .tabset-fade}
+-------------------------------------
+
+### STATUS
+
+```{r, include=FALSE}
+H$ind <- 5
+
+#xts output.
+par(mai=c(0.5,0.5,0.5,0.5))
+par(mfcol=c(1,1))
+plot(H$HourlyTD.xts.List[[paste0(H$ref_TD.hour[H$ind], '_hpf.xts')]][, -3],
+     main=paste0("Target 1: ", H$ref_TD.hour.text[H$ind], " Hodrict Presccot Filter"),observation.based = TRUE)
+```
+
+```{r}
+addSeries(H$HourlyTD.xts.List[[paste0(H$ref_TD.hour[H$ind], '_hpf.xts')]][, 3],
+          main=paste0("Target 1: ", H$ref_TD.hour.text[H$ind], " HPFC"))
+```
+
+### 30 DAYS
+
+```{r, include = FALSE}
+#xts output.
+par(mai=c(0.5,0.5,0.5,0.5))
+par(mfcol=c(1,1))
+plot(H$HourlyTD.xts.List.wd[[paste0(H$ref_TD.hour[H$ind], '_wd_hpf.xts')]][, -3],
+     main=paste0("Target: ", H$ref_TD.hour.text[H$ind], " Hodrict Presccot Filter"),observation.based = TRUE)
+```
+
+
+```{r}
+addSeries(H$HourlyTD.xts.List.wd[[paste0(H$ref_TD.hour[H$ind], '_wd_hpf.xts')]][, 3],
+          main=paste0("Target: ", H$ref_TD.hour.text[H$ind], " HPFC"))
+```
+
+### HvD STATUS
+
+```{r}
+#Changed into xts file.
+H$DailyTD.IH00C1.xts <- H[["DailyTD.xts.List"]][["IH00C1_hpf.xts"]]
+H$HourlyTD.xts.List$IH00C1_60_hpf.2.xts <- align.time(H$HourlyTD.xts.List$IH00C1_60_hpf.xts, 
+                                                     n = 9 * 60*60)
+
+#Align daily trade data with hourly trade data.
+H$MixFreTD.IH00C1.xts <- merge.xts(H$HourlyTD.xts.List$IH00C1_60_hpf.2.xts,
+                                 H$DailyTD.IH00C1.xts,
+                                 join = "left")
+index(H$MixFreTD.IH00C1.xts) <- index(H$HourlyTD.xts.List$IH00C1_60_hpf.xts)
+
+#Try Using ggplot2 to show up the result.
+H$x_label <- seq.POSIXt(from = index(H$MixFreTD.IH00C1.xts)[1], 
+                          to = index(H$MixFreTD.IH00C1.xts)[dim(H$MixFreTD.IH00C1.xts)[1]], by = "week")
+H$MixFreTD.IH00C1.gg <- ggplot(H$MixFreTD.IH00C1.xts, aes(x = as.factor(index(H$MixFreTD.IH00C1.xts)), group = 1)) +
+  geom_line(aes(y = IH00C1_60Close)) + 
+  geom_line(aes(y = IH00C1_60_hpft), colour = "red") + 
+  geom_point(aes(y = IH00C1_hpft), colour = "blue", na.rm = TRUE) +
+  scale_x_discrete(breaks = c(as.character(H$x_label)), labels = format(x = H$x_label, format = "%m%d")) +
+  ggtitle("IH00C1 Hourly and Daily Trend.") + xlab("Trading Date")
+H$MixFreTD.IH00C1.gg
+```
+
+### H_GHD
+
+```{r, include=FALSE}
+#Functions.======================================
+#Functions to obtain timeSeries dataset.
+H$DataSet_Fetch <- function(ref, suffix){
+  attach(c(H$HourlyTD.xts.List))
+  for(i in 1:min(length(ref), length(suffix))){
+    Fetch.get <- get(paste0(ref[i], suffix[i]))
+    if(i == 1){
+      Return.get <- Fetch.get
+    }else{
+      Return.get <- merge.xts(Return.get, Fetch.get, join = "left")
+    }
+  }
+  Return.get.ts <- timeSeries(Return.get, index(Return.get), format = "%Y-%m-%d %H:%M:%S")
+  #Return desired objects
+  detach(c(H$HourlyTD.xts.List))
+  return(Return.get.ts)
+}
+
+#Preparing Dataset.==============================
+H$DIST.Dataset.H <- H$DataSet_Fetch(H$ref_TD.hour[H$ind], "_hpf.xts")
+H$DIST.Dataset.H.cycle <- na.omit(H$DIST.Dataset.H[, c(paste0(H$ref_TD.hour[H$ind], "_hpfc"))])
+#Fitting Cycle to distribution function.
+H$DIST.H.ycycle <- H$DIST.Dataset.H.cycle[, c(paste0(H$ref_TD.hour[H$ind], "_hpfc"))]
+H$DIST.H.ef <- density(H$DIST.H.ycycle)
+#Density
+H$DIST.H.ghdfit <- fit.ghypuv(H$DIST.H.ycycle, symmetric = FALSE, control = list(maxit = 1000))
+H$DIST.H.ghddense <- dghyp(H$DIST.H.ef$x, H$DIST.H.ghdfit)
+H$DIST.H.col.def <- c("black", "blue")
+#VaR and ES
+H$DIST.H.p <- seq(0.001, 0.05, 0.001)
+H$DIST.H.VaR <- abs(qghyp(H$DIST.H.p, H$DIST.H.ghdfit))
+H$DIST.H.emp.VaR <- abs(quantile(x = H$DIST.H.ycycle, probs = H$DIST.H.p))
+H$DIST.H.ES <- abs(ESghyp(H$DIST.H.p, H$DIST.H.ghdfit))
+H$DIST.H.obs.p <- ceiling(H$DIST.H.p * length(H$DIST.H.ycycle))
+H$DIST.H.emp.ES <- sapply(H$DIST.H.obs.p, function(x) abs(mean(sort(c(H$DIST.H.ycycle))[1:x])))
+```
+
+```{r}
+
+par(mfcol = c(1, 3))
+#Cycle
+plot(H$DIST.H.ef, xlab = paste0(H$ref_TD.hour[H$ind], " Cycle"), ylab = expression(f(x)), 
+     ylim = c(0, max(H$DIST.H.ef$y*1.2)), main = paste0("Distribution of ", H$ref_TD.hour[H$ind], " Cycle"))
+lines(H$DIST.H.ef$x, H$DIST.H.ghddense, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+#VaR
+plot(H$DIST.H.emp.VaR, type = "l", xlab = "", ylab = "VaR", axes = FALSE, ylim = range(c(H$DIST.H.emp.VaR)),
+     main = paste0("Value at Risk of ", H$ref_TD.hour[H$ind], " Cycle"))
+box()
+axis(1, at = seq(along = H$DIST.H.p), labels = names(H$DIST.H.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.H.emp.VaR)))
+lines(seq(along = H$DIST.H.p), H$DIST.H.VaR, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+#ES
+plot(H$DIST.H.emp.ES, type = "l", xlab = "", ylab = "ES", axes = FALSE, ylim = range(c(H$DIST.H.emp.ES)), 
+     main = paste0("Expected Shortfall of ", H$ref_TD.hour[H$ind], " Cycle"))
+box()
+axis(1, at = 1:length(H$DIST.H.p), labels = names(H$DIST.H.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.H.emp.ES)))
+lines(1:length(H$DIST.H.p), H$DIST.H.ES, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+par(mfcol = c(1,1))
+```
+
+### D_GHD
+
+```{r, include=FALSE}
+##Functions.=====================================
+H$DataSet_Fetch_D <- function(ref, suffix){
+  attach(c(H$DailyTD.xts.List))
+  for(i in 1:min(length(ref), length(suffix))){
+    Fetch.get <- get(paste0(ref[i], suffix[i]))
+    if(i == 1){
+      Return.get <- Fetch.get
+    }else{
+      Return.get <- merge.xts(Return.get, Fetch.get, join = "left")
+    }
+  }
+  Return.get.ts <- timeSeries(Return.get, index(Return.get), format = "%Y-%m-%d %H:%M:%S")
+  #Return desired objects
+  detach(c(H$DailyTD.xts.List))
+  return(Return.get.ts)
+}
+
+#Fetching Dataset.
+H$DIST.Dataset.D <- H$DataSet_Fetch_D(H$ref_TD[H$ind], "_hpf.xts")
+H$DIST.Dataset.D.cycle <- na.omit(H$DIST.Dataset.D[, c(paste0(H$ref_TD[H$ind], "_hpfc"))])
+#Fitting Cycle to distribution function.
+H$DIST.D.ycycle <- H$DIST.Dataset.D.cycle[, c(paste0(H$ref_TD[H$ind], "_hpfc"))]
+H$DIST.D.ef <- density(H$DIST.D.ycycle)
+#Density
+H$DIST.D.ghdfit <- fit.ghypuv(H$DIST.D.ycycle, symmetric = FALSE, control = list(maxit = 1000))
+H$DIST.D.ghddense <- dghyp(H$DIST.D.ef$x, H$DIST.D.ghdfit)
+H$DIST.D.col.def <- c("black", "red")
+#VaR and ES
+H$DIST.D.p <- seq(0.001, 0.05, 0.001)
+H$DIST.D.VaR <- abs(qghyp(H$DIST.D.p, H$DIST.D.ghdfit))
+H$DIST.D.emp.VaR <- abs(quantile(x = H$DIST.D.ycycle, probs = H$DIST.D.p))
+H$DIST.D.ES <- abs(ESghyp(H$DIST.D.p, H$DIST.D.ghdfit))
+H$DIST.D.obs.p <- ceiling(H$DIST.D.p * length(H$DIST.D.ycycle))
+H$DIST.D.emp.ES <- sapply(H$DIST.D.obs.p, function(x) abs(mean(sort(c(H$DIST.D.ycycle))[1:x])))
+```
+
+```{r}
+
+par(mfcol = c(1, 3))
+#Cycle
+plot(H$DIST.D.ef, xlab = paste0(H$ref_TD[H$ind], " Cycle"), ylab = expression(f(x)), 
+     ylim = c(0, max(H$DIST.D.ef$y*1.2)), main = paste0("Distribution of ", H$ref_TD[H$ind], " Cycle"))
+lines(H$DIST.D.ef$x, H$DIST.D.ghddense, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+#VaR
+plot(H$DIST.D.emp.VaR, type = "l", xlab = "", ylab = "VaR", axes = FALSE, ylim = range(c(H$DIST.D.emp.VaR)),
+     main = paste0("Value at Risk of ", H$ref_TD[H$ind], " Cycle"))
+box()
+axis(1, at = seq(along = H$DIST.D.p), labels = names(H$DIST.D.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.D.emp.VaR)))
+lines(seq(along = H$DIST.D.p), H$DIST.D.VaR, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+#ES
+plot(H$DIST.D.emp.ES, type = "l", xlab = "", ylab = "ES", axes = FALSE, ylim = range(c(H$DIST.D.emp.ES)), 
+     main = paste0("Expected Shortfall of ", H$ref_TD[H$ind], " Cycle"))
+box()
+axis(1, at = 1:length(H$DIST.D.p), labels = names(H$DIST.D.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.D.emp.ES)))
+lines(1:length(H$DIST.D.p), H$DIST.D.ES, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+par(mfcol = c(1,1))
+```
+
+### GPD_VaRnES
+
+```{r, paged.print=TRUE}
+H$GPD.H.cycle.tg1 <- H$DIST.H.ycycle
+H$GPD.D.cycle.tg1 <- H$DIST.D.ycycle
+
+##GPD
+H$GPD.H.fit.tg1 <- gpdFit(H$GPD.H.cycle.tg1, u = 50)
+H$GPD.H.VaRES.tg1 <- round(gpdRiskMeasures(H$GPD.H.fit.tg1, prob = H$prob.ind),
+                           digits = 3)
+H$GPD.D.fit.tg1 <- gpdFit(H$GPD.D.cycle.tg1, u = 200)
+H$GPD.D.VaRES.tg1 <- round(gpdRiskMeasures(H$GPD.D.fit.tg1, prob = H$prob.ind),
+                           digits = 3)
+##Output Table
+H$GPD.H.VaRES.tg1.gg <- ggtexttable(H$GPD.H.VaRES.tg1, 
+                                    cols = c("Prob", "VaR", "ES"),
+                                    theme = ttheme(colnames.style = colnames_style(color = "pink", 
+                                                                                   fill = "yellow",
+                                                                                   size = 20),
+                                                   tbody.style = tbody_style(size = 20))
+                                    )
+H$GPD.D.VaRES.tg1.gg <- ggtexttable(H$GPD.D.VaRES.tg1, 
+                                    cols = c("Prob", "VaR", "ES"),
+                                    theme = ttheme(colnames.style = colnames_style(color = "white", 
+                                                                                   fill = "orange",
+                                                                                   size = 20),
+                                                   tbody.style = tbody_style(size = 20))
+                                    )
+H$GPD.H.VaRES.tg1.gg.output <- ggarrange(H$GPD.H.VaRES.tg1.gg, 
+                                         H$GPD.D.VaRES.tg1.gg,
+                                         ncol = 2, nrow = 1)
+annotate_figure(H$GPD.H.VaRES.tg1.gg.output, top = text_grob(
+  paste0("VaR and ES under GPD of ", H$ref_TD.hour[H$ind], " and ", H$ref_TD[H$ind], "."),
+  size = 20, vjust = 5
+  ))
+```
+
+INE CRUDE
+==================================================
+
+```{r CRUDE setup, include=FALSE}
+##Reset Global Enviorments
+H$ref_TD.hour <- c("SCM_60")
+H$ref_TD.hour.text <- c("INE SCM major 60 min")
+H$ref_TD <- c("SCM")
+H$ref_TD.text <- c("INE Crude")
+H$ref_TD.hour.bk <- c(H$ref_TD.hour.bk, H$ref_TD.hour)
+
+#Functions.--------------------------------------
+#Function to read from excel file and process with hodrick prescott filter.
+H$read_xls_hpf2 <- function(contract_name){
+  #Read Excel File Data.
+  TD.read <- read_excel(file.path(H$globalWD.DATA, paste0(contract_name, ".xls")),
+                        col_types = c("text", "text", "date",
+                                      "numeric", "numeric", "numeric", 
+                                      "numeric", "numeric", "numeric", 
+                                      "numeric", "numeric"),
+                        col_names = TRUE
+  )
+  colnames(TD.read) <- c(paste0(contract_name, "Code"),
+                         paste0(contract_name, "Contract"),
+                         paste0(contract_name, "Date"),
+                         paste0(contract_name, "Open"),
+                         paste0(contract_name, "High"),
+                         paste0(contract_name, "Low"),
+                         paste0(contract_name, "Close"),
+                         paste0(contract_name, "Chg"),
+                         paste0(contract_name, "RateofChg"),
+                         paste0(contract_name, "Vol"),
+                         paste0(contract_name, "Amn"))
+  TD.read.na <- na.omit(TD.read)
+  #Return Dataframe without NA.
+  close.HPF <- hpfilter(TD.read.na[[paste0(contract_name, "Close")]], freq=2419200, type=c("lambda"), drift = FALSE)
+  return.output <- as.data.frame(TD.read.na[, 3])
+  return.output <- cbind(return.output,
+                         TD.read.na[, 7],
+                         close.HPF$trend,
+                         close.HPF$cycle)
+  colnames(return.output) <- c(paste0(contract_name, "Date"),
+                               paste0(contract_name, "Close"),
+                               paste0(contract_name, "_hpft"),
+                               paste0(contract_name, "_hpfc"))
+  return(return.output)
+}
+
+#Processing.-------------------------------------
+#Read Hourly Trade Data.
+H$HourlyTD.List <- list(NULL)
+for(i in 1:length(H$ref_TD.hour)){
+  H$HourlyTD.List[i]  <- list(H$read_xls_hpf2(H$ref_TD.hour[i]))
+  names(H$HourlyTD.List)[i] <- paste0(H$ref_TD.hour[i], "_hpf")
+}
+
+#For XTS output.
+H$HourlyTD.xts.List <- list(NULL)
+H$HourlyTD.xts.List.wd <- list(NULL)
+for(i in 1:length(H$ref_TD.hour)){
+  H$HourlyTD.xts.List[i] <- list(xts(H$HourlyTD.List[[paste0(H$ref_TD.hour[i], "_hpf")]][, -1], 
+                                order.by = H$HourlyTD.List[[paste0(H$ref_TD.hour[i], "_hpf")]][, 1]))
+  names(H$HourlyTD.xts.List)[i] <- paste0(H$ref_TD.hour[i], "_hpf.xts")
+  ##Windowing the Hourly Trade Data
+  H$xh <- xts(H$HourlyTD.List[[paste0(H$ref_TD.hour[i], "_hpf")]][, -1], 
+                                order.by = H$HourlyTD.List[[paste0(H$ref_TD.hour[i], "_hpf")]][, 1])
+  H$HourlyTD.xts.List.wd[i] <- list(H$xh[H$wd_ind])
+  names(H$HourlyTD.xts.List.wd)[i] <- paste0(H$ref_TD.hour[i], "_wd_hpf.xts")
+}
+#Read Daily Trade Data
+H$DailyTD.xts.List <- list(NULL)
+H$DailyTD.xts.List <- H$read_daily(H$ref_TD)
+
+##SAVE for Hourly TD_All
+H$HourlyTD.xts.List.bk <- c(H$HourlyTD.xts.List.bk, H$HourlyTD.xts.List)
+
+```
+
+STATUS and DIST {.tabset .tabset-fade}
+-------------------------------------
+
+### STATUS
+
+```{r, include=FALSE}
+H$ind <- 1
+
+#xts output.
+par(mai=c(0.5,0.5,0.5,0.5))
+par(mfcol=c(1,1))
+plot(H$HourlyTD.xts.List[[paste0(H$ref_TD.hour[H$ind], '_hpf.xts')]][, -3],
+     main=paste0("Target 1: ", H$ref_TD.hour.text[H$ind], " Hodrict Presccot Filter"),observation.based = TRUE)
+```
+
+```{r}
+addSeries(H$HourlyTD.xts.List[[paste0(H$ref_TD.hour[H$ind], '_hpf.xts')]][, 3],
+          main=paste0("Target 1: ", H$ref_TD.hour.text[H$ind], " HPFC"))
+```
+
+### 30 DAYS
+
+```{r, include = FALSE}
+#xts output.
+par(mai=c(0.5,0.5,0.5,0.5))
+par(mfcol=c(1,1))
+plot(H$HourlyTD.xts.List.wd[[paste0(H$ref_TD.hour[H$ind], '_wd_hpf.xts')]][, -3],
+     main=paste0("Target 1: ", H$ref_TD.hour.text[H$ind], " Hodrict Presccot Filter"),observation.based = TRUE)
+```
+
+
+```{r}
+addSeries(H$HourlyTD.xts.List.wd[[paste0(H$ref_TD.hour[H$ind], '_wd_hpf.xts')]][, 3],
+          main=paste0("Target 1: ", H$ref_TD.hour.text[H$ind], " HPFC"))
+```
+
+### HvD STATUS
+
+```{r}
+#Changed into xts file.
+H$DailyTD.SCM.xts <- H[["DailyTD.xts.List"]][["SCM_hpf.xts"]]
+H$HourlyTD.xts.List$SCM_60_hpf.2.xts <- align.time(H$HourlyTD.xts.List$SCM_60_hpf.xts, 
+                                                     n = 9 * 60*60)
+
+#Align daily trade data with hourly trade data.
+H$MixFreTD.SCM.xts <- merge.xts(H$HourlyTD.xts.List$SCM_60_hpf.2.xts,
+                                 H$DailyTD.SCM.xts,
+                                 join = "left")
+index(H$MixFreTD.SCM.xts) <- index(H$HourlyTD.xts.List$SCM_60_hpf.xts)
+
+#Try Using ggplot2 to show up the result.
+H$x_label <- seq.POSIXt(from = index(H$MixFreTD.SCM.xts)[1], 
+                          to = index(H$MixFreTD.SCM.xts)[dim(H$MixFreTD.SCM.xts)[1]], by = "week")
+H$MixFreTD.SCM.gg <- ggplot(H$MixFreTD.SCM.xts, aes(x = as.factor(index(H$MixFreTD.SCM.xts)), group = 1)) +
+  geom_line(aes(y = SCM_60Close)) + 
+  geom_line(aes(y = SCM_60_hpft), colour = "red") + 
+  geom_point(aes(y = SCM_hpft), colour = "blue", na.rm = TRUE) +
+  scale_x_discrete(breaks = c(as.character(H$x_label)), labels = format(x = H$x_label, format = "%m%d")) +
+  ggtitle("SCM Hourly and Daily Trend.") + xlab("Trading Date")
+H$MixFreTD.SCM.gg
+```
+
+### H_GHD
+
+```{r, include=FALSE}
+#Functions.======================================
+#Functions to obtain timeSeries dataset.
+H$DataSet_Fetch <- function(ref, suffix){
+  attach(c(H$HourlyTD.xts.List))
+  for(i in 1:min(length(ref), length(suffix))){
+    Fetch.get <- get(paste0(ref[i], suffix[i]))
+    if(i == 1){
+      Return.get <- Fetch.get
+    }else{
+      Return.get <- merge.xts(Return.get, Fetch.get, join = "left")
+    }
+  }
+  Return.get.ts <- timeSeries(Return.get, index(Return.get), format = "%Y-%m-%d %H:%M:%S")
+  #Return desired objects
+  detach(c(H$HourlyTD.xts.List))
+  return(Return.get.ts)
+}
+
+#Preparing Dataset.==============================
+H$DIST.Dataset.H <- H$DataSet_Fetch(H$ref_TD.hour[H$ind], "_hpf.xts")
+H$DIST.Dataset.H.cycle <- na.omit(H$DIST.Dataset.H[, c(paste0(H$ref_TD.hour[H$ind], "_hpfc"))])
+#Fitting Cycle to distribution function.
+H$DIST.H.ycycle <- H$DIST.Dataset.H.cycle[, c(paste0(H$ref_TD.hour[H$ind], "_hpfc"))]
+H$DIST.H.ef <- density(H$DIST.H.ycycle)
+#Density
+H$DIST.H.ghdfit <- fit.ghypuv(H$DIST.H.ycycle, symmetric = FALSE, control = list(maxit = 1000))
+H$DIST.H.ghddense <- dghyp(H$DIST.H.ef$x, H$DIST.H.ghdfit)
+H$DIST.H.col.def <- c("black", "blue")
+#VaR and ES
+H$DIST.H.p <- seq(0.001, 0.05, 0.001)
+H$DIST.H.VaR <- abs(qghyp(H$DIST.H.p, H$DIST.H.ghdfit))
+H$DIST.H.emp.VaR <- abs(quantile(x = H$DIST.H.ycycle, probs = H$DIST.H.p))
+H$DIST.H.ES <- abs(ESghyp(H$DIST.H.p, H$DIST.H.ghdfit))
+H$DIST.H.obs.p <- ceiling(H$DIST.H.p * length(H$DIST.H.ycycle))
+H$DIST.H.emp.ES <- sapply(H$DIST.H.obs.p, function(x) abs(mean(sort(c(H$DIST.H.ycycle))[1:x])))
+```
+
+```{r}
+
+par(mfcol = c(1, 3))
+#Cycle
+plot(H$DIST.H.ef, xlab = paste0(H$ref_TD.hour[H$ind], " Cycle"), ylab = expression(f(x)), 
+     ylim = c(0, max(H$DIST.H.ef$y*1.2)), main = paste0("Distribution of ", H$ref_TD.hour[H$ind], " Cycle"))
+lines(H$DIST.H.ef$x, H$DIST.H.ghddense, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+#VaR
+plot(H$DIST.H.emp.VaR, type = "l", xlab = "", ylab = "VaR", axes = FALSE, ylim = range(c(H$DIST.H.emp.VaR)),
+     main = paste0("Value at Risk of ", H$ref_TD.hour[H$ind], " Cycle"))
+box()
+axis(1, at = seq(along = H$DIST.H.p), labels = names(H$DIST.H.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.H.emp.VaR)))
+lines(seq(along = H$DIST.H.p), H$DIST.H.VaR, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+#ES
+plot(H$DIST.H.emp.ES, type = "l", xlab = "", ylab = "ES", axes = FALSE, ylim = range(c(H$DIST.H.emp.ES)), 
+     main = paste0("Expected Shortfall of ", H$ref_TD.hour[H$ind], " Cycle"))
+box()
+axis(1, at = 1:length(H$DIST.H.p), labels = names(H$DIST.H.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.H.emp.ES)))
+lines(1:length(H$DIST.H.p), H$DIST.H.ES, col = "blue")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.H.col.def, lty = 1)
+
+par(mfcol = c(1,1))
+```
+
+### D_GHD
+
+```{r, include=FALSE}
+##Functions.=====================================
+H$DataSet_Fetch_D <- function(ref, suffix){
+  attach(c(H$DailyTD.xts.List))
+  for(i in 1:min(length(ref), length(suffix))){
+    Fetch.get <- get(paste0(ref[i], suffix[i]))
+    if(i == 1){
+      Return.get <- Fetch.get
+    }else{
+      Return.get <- merge.xts(Return.get, Fetch.get, join = "left")
+    }
+  }
+  Return.get.ts <- timeSeries(Return.get, index(Return.get), format = "%Y-%m-%d %H:%M:%S")
+  #Return desired objects
+  detach(c(H$DailyTD.xts.List))
+  return(Return.get.ts)
+}
+
+#Fetching Dataset.
+H$DIST.Dataset.D <- H$DataSet_Fetch_D(H$ref_TD[H$ind], "_hpf.xts")
+H$DIST.Dataset.D.cycle <- na.omit(H$DIST.Dataset.D[, c(paste0(H$ref_TD[H$ind], "_hpfc"))])
+#Fitting Cycle to distribution function.
+H$DIST.D.ycycle <- H$DIST.Dataset.D.cycle[, c(paste0(H$ref_TD[H$ind], "_hpfc"))]
+H$DIST.D.ef <- density(H$DIST.D.ycycle)
+#Density
+H$DIST.D.ghdfit <- fit.ghypuv(H$DIST.D.ycycle, symmetric = FALSE, control = list(maxit = 1000))
+H$DIST.D.ghddense <- dghyp(H$DIST.D.ef$x, H$DIST.D.ghdfit)
+H$DIST.D.col.def <- c("black", "red")
+#VaR and ES
+H$DIST.D.p <- seq(0.001, 0.05, 0.001)
+H$DIST.D.VaR <- abs(qghyp(H$DIST.D.p, H$DIST.D.ghdfit))
+H$DIST.D.emp.VaR <- abs(quantile(x = H$DIST.D.ycycle, probs = H$DIST.D.p))
+H$DIST.D.ES <- abs(ESghyp(H$DIST.D.p, H$DIST.D.ghdfit))
+H$DIST.D.obs.p <- ceiling(H$DIST.D.p * length(H$DIST.D.ycycle))
+H$DIST.D.emp.ES <- sapply(H$DIST.D.obs.p, function(x) abs(mean(sort(c(H$DIST.D.ycycle))[1:x])))
+```
+
+```{r}
+
+par(mfcol = c(1, 3))
+#Cycle
+plot(H$DIST.D.ef, xlab = paste0(H$ref_TD[H$ind], " Cycle"), ylab = expression(f(x)), 
+     ylim = c(0, max(H$DIST.D.ef$y*1.2)), main = paste0("Distribution of ", H$ref_TD[H$ind], " Cycle"))
+lines(H$DIST.D.ef$x, H$DIST.D.ghddense, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+#VaR
+plot(H$DIST.D.emp.VaR, type = "l", xlab = "", ylab = "VaR", axes = FALSE, ylim = range(c(H$DIST.D.emp.VaR)),
+     main = paste0("Value at Risk of ", H$ref_TD[H$ind], " Cycle"))
+box()
+axis(1, at = seq(along = H$DIST.D.p), labels = names(H$DIST.D.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.D.emp.VaR)))
+lines(seq(along = H$DIST.D.p), H$DIST.D.VaR, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+#ES
+plot(H$DIST.D.emp.ES, type = "l", xlab = "", ylab = "ES", axes = FALSE, ylim = range(c(H$DIST.D.emp.ES)), 
+     main = paste0("Expected Shortfall of ", H$ref_TD[H$ind], " Cycle"))
+box()
+axis(1, at = 1:length(H$DIST.D.p), labels = names(H$DIST.D.emp.VaR), tick = FALSE)
+axis(2, at = pretty(range(H$DIST.D.emp.ES)))
+lines(1:length(H$DIST.D.p), H$DIST.D.ES, col = "red")
+legend("topleft", legend = c("empirical", "GHD"), col = H$DIST.D.col.def, lty = 1)
+
+par(mfcol = c(1,1))
+```
+
+### GPD_VaRnES
+
+```{r, paged.print=TRUE}
+H$GPD.H.cycle.tg1 <- H$DIST.H.ycycle
+H$GPD.D.cycle.tg1 <- H$DIST.D.ycycle
+
+##GPD
+H$GPD.H.fit.tg1 <- gpdFit(H$GPD.H.cycle.tg1, u = 10)
+H$GPD.H.VaRES.tg1 <- round(gpdRiskMeasures(H$GPD.H.fit.tg1, prob = H$prob.ind),
+                           digits = 3)
+H$GPD.D.fit.tg1 <- gpdFit(H$GPD.D.cycle.tg1, u = 50)
+H$GPD.D.VaRES.tg1 <- round(gpdRiskMeasures(H$GPD.D.fit.tg1, prob = H$prob.ind),
+                           digits = 3)
+##Output Table
+H$GPD.H.VaRES.tg1.gg <- ggtexttable(H$GPD.H.VaRES.tg1, 
+                                    cols = c("Prob", "VaR", "ES"),
+                                    theme = ttheme(colnames.style = colnames_style(color = "pink", 
+                                                                                   fill = "yellow",
+                                                                                   size = 20),
+                                                   tbody.style = tbody_style(size = 20))
+                                    )
+H$GPD.D.VaRES.tg1.gg <- ggtexttable(H$GPD.D.VaRES.tg1, 
+                                    cols = c("Prob", "VaR", "ES"),
+                                    theme = ttheme(colnames.style = colnames_style(color = "white", 
+                                                                                   fill = "orange",
+                                                                                   size = 20),
+                                                   tbody.style = tbody_style(size = 20))
+                                    )
+H$GPD.H.VaRES.tg1.gg.output <- ggarrange(H$GPD.H.VaRES.tg1.gg, 
+                                         H$GPD.D.VaRES.tg1.gg,
+                                         ncol = 2, nrow = 1)
+annotate_figure(H$GPD.H.VaRES.tg1.gg.output, top = text_grob(
+  paste0("VaR and ES under GPD of ", H$ref_TD.hour[H$ind], " and ", H$ref_TD[H$ind], "."),
+  size = 20, vjust = 5
+  ))
+```
+
+COMPARE 
+==================================================
+
+```{r All Trading Datas, include=FALSE}
+#Align all Trading Datas and giving output.
+#Functions to align all trading Datas.
+#Return with timeSeries files for convience of further analysis.
+H$TD_align_all <- function(Major_ref, Align_ref){
+  attach(c(H$HourlyTD.xts.List.bk))
+  #Gets major trading data
+  All.get <- get(paste0(Major_ref, "_hpf.xts"))
+  index(All.get) <- strptime(index(All.get), "%Y-%m-%d")
+  #Align all trading data
+  for(i in 1:length(Align_ref)){
+    toAlign.get <- get(paste0(Align_ref[i], "_hpf.xts"))
+    index(toAlign.get) <- strptime(index(toAlign.get), "%Y-%m-%d")
+    All.get <- merge.xts(All.get, toAlign.get, join = "left")
+  }
+  All.get.ts <- timeSeries(All.get, index(All.get), format = "%Y-%m-%d")
+  #Return desired objects
+  detach(c(H$HourlyTD.xts.List.bk))
+  return(All.get.ts)
+}
+
+#Processing--------------------------------------
+#Align all to CN 10yr Treasury Futures Close Price
+H$Major_ref <- H$ref_TD.hour.bk[1]
+H$Align_ref <- c(H$ref_TD.hour.bk[-1])
+#Process to get all Trade Data aligned.
+H$Hourly_TD_All.ts <- H$TD_align_all(H$Major_ref, H$Align_ref)
+H$output_ref <- c("All Trends", "All Cycles")
+```
+
+COMPARE {.tabset .tabset-fade}
+-------------------------------------
+
+### TREND
+
+```{r echo=FALSE}
+#Functions to plot the reengineered data.
+#Function 1 to use plot()
+H$Reengineered_Dataset_Plot <- function(Reengineered_DS = timeSeries(NULL),
+                                             emphasis.lwd = NULL,
+                                             emphasis.lty = NULL){#Parameter for emphasis in plot.
+  #Checking emphasis parameter.
+  if(is.null(emphasis.lwd)){
+    emphasis.lwd <- c(3, rep(1, dim(Reengineered_DS)[2]-1))
+  }
+  if(is.null(emphasis.lty)){
+    emphasis.lty <- c(1, rep(3, dim(Reengineered_DS)[2]-1))
+  }
+  par(mai=c(0.5,0.5,0.5,0.5))
+  par(mfcol=c(1,1))
+  for(ig in 1:(dim(Reengineered_DS)[2]-1)){
+    if(ig == 1){
+      par(new = F)
+      timeSeries::plot(Reengineered_DS[, ig], plot.type = c("single"), 
+                       ann = FALSE, col = 1, lwd = emphasis.lwd[ig], lty = emphasis.lty[ig])
+      grid()
+      par(new = T)
+      timeSeries::plot(Reengineered_DS[, ig+1], plot.type = c("single"), 
+                       ann = FALSE, col = ig+1, yaxt = "n", xaxt = "n", 
+                       axes = FALSE, lwd = emphasis.lwd[ig + 1], lty = emphasis.lty[ig + 1])
+    }else{
+      par(new = T)
+      timeSeries::plot(Reengineered_DS[, ig+1], plot.type = c("single"), 
+                       ann = FALSE, col = ig+1, yaxt = "n", xaxt = "n", 
+                       axes = FALSE, lwd = emphasis.lwd[ig + 1], lty = emphasis.lty[ig + 1])
+    }
+  }
+  mtext(paste0("FIGUER 1. ", colnames(Reengineered_DS)[1], " to ", 
+               toString(colnames(Reengineered_DS)[-1]), "."), 
+        side =3, ces = 1)
+  legend("topleft", c(colnames(Reengineered_DS)), lty =1, 
+         col = seq.int(1, dim(Reengineered_DS)[2]),
+         lwd = emphasis.lwd)
+}
+
+H$Trends.Hourly_TD_All <- H$Hourly_TD_All.ts[, paste0(H$ref_TD.hour.bk, "_hpft")]
+H$Cycles.Hourly_TD_All <- H$Hourly_TD_All.ts[, paste0(H$ref_TD.hour.bk, "_hpfc")]
+H$ref_TD.hour.bk.lwd <- c(rep(1, 1), rep(4, 3), rep(5, 2))
+H$ref_TD.hour.bk.lty <- c(rep(1, 1), rep(3, 3), rep(5, 2))
+
+##Ploting.=======================================
+H$Reengineered_Dataset_Plot(H$Trends.Hourly_TD_All, 
+                            H$ref_TD.hour.bk.lwd, H$ref_TD.hour.bk.lwd)
+```
+
+### CYCLE_HISTOGRAM
+
+```{r echo=FALSE}
+##Functions for ggplot2.-------------------------
+H$Histo_Graph <- function(data.DF, data.ind = NULL){
+  ##Changing data frame into with Facets
+  Histogram.DF <- NULL
+  for (i in 1:length(data.ind)){
+    Histogram.DF <- c(Histogram.DF, round(data.DF[, i], digits = 0))
+  }
+  Histogram.DF  <- cbind(Histogram.DF, rep(data.ind, each = dim(data.DF)[1]))
+  Histogram.DF <- as.data.frame(Histogram.DF, stringsAsFactors = FALSE, make.names = FALSE)
+  Histogram.DF[, 1] <- as.numeric(Histogram.DF[, 1])
+  colnames(Histogram.DF) <- c("hpfc", "facet")
+  #Current Step
+  Histogram.DF.x1 <- NULL
+  for (i in 1:length(data.ind)){
+    Histogram.DF.x1 <- rbind(Histogram.DF.x1, Histogram.DF[dim(data.DF)[1]*i, ])
+  }
+  Histogram.DF.x1 <- as.data.frame(Histogram.DF.x1, make.names = FALSE)
+  colnames(Histogram.DF.x1) <- c("close", "facet")
+  #One Step Back
+  Histogram.DF.x2 <- NULL
+  for (i in 1:length(data.ind)){
+    Histogram.DF.x2 <- rbind(Histogram.DF.x2, Histogram.DF[dim(data.DF)[1]*i - 1, ])
+  }
+  Histogram.DF.x2 <- as.data.frame(Histogram.DF.x2, make.names = FALSE)
+  colnames(Histogram.DF.x2) <- c("close", "facet")
+  #Two Steps Back
+  Histogram.DF.x3 <- NULL
+  for (i in 1:length(data.ind)){
+    Histogram.DF.x3 <- rbind(Histogram.DF.x3, Histogram.DF[dim(data.DF)[1]*i - 2, ])
+  }
+  Histogram.DF.x3 <- as.data.frame(Histogram.DF.x3, make.names = FALSE)
+  colnames(Histogram.DF.x3) <- c("close", "facet")
+
+      
+  ##Generating ggplot graphic.
+  return.gg <- ggplot(Histogram.DF, aes(x = hpfc)) + 
+    geom_histogram(binwidth = 5, fill = "white", colour = "black") +
+    facet_grid(facet ~ .) +
+    geom_point(data = Histogram.DF.x1, aes(x =close, y = 50), size = 4, alpha = 0.5) + 
+    geom_point(data = Histogram.DF.x2, aes(x =close, y = 50), size = 2.5, alpha = 0.5) +
+    geom_point(data = Histogram.DF.x3, aes(x =close, y = 50), size = 2, alpha = 0.5)
+
+  return(return.gg)
+}
+
+##Ploting Histograms.----------------------------
+#Normalized the dataset before ploting, SC contracts multiply by 10, while T contract multiply by 100.
+H$dataset_for_plot <- data.frame(H$Cycles.Hourly_TD_All@.Data)
+H$dataset_for_plot[, 1] <- H$dataset_for_plot[, 1] * 10
+H$dataset_for_plot[, 2] <- H$dataset_for_plot[, 2] * 100
+H$dataset_for_plot[, 3] <- H$dataset_for_plot[, 3] * 1
+H$dataset_for_plot[, 4] <- H$dataset_for_plot[, 4] / 10
+H$dataset_for_plot[, 5] <- H$dataset_for_plot[, 5] / 5
+H$dataset_for_plot[, 6] <- H$dataset_for_plot[, 6] * 10
+H$dataset_for_plot <- round(H$dataset_for_plot, digits = 1)
+
+H$Histo.gg1 <- H$Histo_Graph(data.DF = H$dataset_for_plot, 
+                             data.ind = H$ref_TD.hour.bk)
+H$Histo.gg1
+
+```
+
+CYCLES {data-height=800} 
+==================================================
+
+```{r echo=FALSE}
+##Function to visualize the cycle.---------------
+H$Cycles_Visualize_f3 <- function(Cycle_dataset, #Cycles
+                              Major_id = 1){ #For Ploting Major curve
+  #Setting ploting layout.
+  par(mai=c(0.38,0.5,0.3,0.5))
+  par(mfcol = c(2,1))
+  #Ploting
+    for(ig in 1:dim(Cycle_dataset)[2]){
+      if(ig == dim(Cycle_dataset)[2]){
+        par(new = F)
+        timeSeries::plot(Cycle_dataset[, Major_id], plot.type = c("single"), ann = FALSE, 
+                         col = Major_id)
+        grid()
+        par(new = T)
+        timeSeries::plot(Cycle_dataset[, ig], plot.type = c("single"), 
+                         ann = FALSE, col = ig, yaxt = "n", xaxt = "n")
+        mtext(paste0("CYCLES VISUALIZING: ", 
+                     Cycle_dataset@units[Major_id], " to ", 
+                     Cycle_dataset@units[ig]), side = 3, cex = 1)
+        legend("topleft", c(Cycle_dataset@units[Major_id], Cycle_dataset@units[ig]), 
+               lty = 1, col= c(Major_id, ig))
+        #Then plot layer shows all curves.
+        for (ig2 in 1: dim(Cycle_dataset)[2]){
+          if(ig2 == 1){
+            par(new = F)
+            timeSeries::plot(Cycle_dataset[, ig2], plot.type = c("single"), ann = FALSE, 
+                             col = ig2, lwd = 2)
+            grid()
+          }else{
+            par(new = T)
+            timeSeries::plot(Cycle_dataset[, ig2], plot.type = c("single"), 
+                             ann = FALSE, col = ig2, yaxt = "n", xaxt = "n")
+          }
+        }
+        mtext(paste0("CYCLES VISUALIZING: ", Cycle_dataset@units[Major_id], 
+                     " to All Cycles."), side = 3, cex = 1)
+        legend("topleft", Cycle_dataset@units, lty = 1, col= seq.int(1, dim(Cycle_dataset)[2]))
+      }else if(ig == 1){
+        ##Plot the first 3 Colums together.
+        par(new = F)
+        timeSeries::plot(Cycle_dataset[, 1], plot.type = c("single"), ann = FALSE, col = 1, lwd = 2)
+        grid()
+        par(new = T)
+        timeSeries::plot(Cycle_dataset[, 2], plot.type = c("single"), 
+                         ann = FALSE, col = 2, yaxt = "n", xaxt = "n",
+                         lwd = 1)
+        par(new = T)
+        timeSeries::plot(Cycle_dataset[, 3], plot.type = c("single"), 
+                         ann = FALSE, col = 3, yaxt = "n", xaxt = "n",
+                         lwd = 1)
+        mtext(paste0("CYCLES VISUALIZING: ", 
+                     Cycle_dataset@units[1], " to ", 
+                     Cycle_dataset@units[2], " and ",
+                     Cycle_dataset@units[3]), side = 3, cex = 1)
+        legend("topleft", c(Cycle_dataset@units[1:3]), 
+               lty = 1, col= c(1:3))
+      }else{
+        par(new = F)
+        timeSeries::plot(Cycle_dataset[, Major_id], plot.type = c("single"), ann = FALSE, col = Major_id)
+        grid()
+        par(new = T)
+        timeSeries::plot(Cycle_dataset[, ig], plot.type = c("single"), 
+                         ann = FALSE, col = ig, yaxt = "n", xaxt = "n")
+        mtext(paste0("CYCLES VISUALIZING: ", 
+                     Cycle_dataset@units[Major_id], " to ", 
+                     Cycle_dataset@units[ig]), side = 3, cex = 1)
+        legend("topleft", c(Cycle_dataset@units[Major_id], Cycle_dataset@units[ig]), 
+               lty = 1, col= c(Major_id, ig))
+      }
+    }
+}
+
+##Functions for ploting only 2 cycles
+H$Cycles_Visualize_2 <- function(Cycle_dataset){ 
+  #Setting ploting layout.
+  par(mai=c(0.38,0.5,0.3,0.5))
+  par(mfcol = c(1,1))
+  #Ploting
+  par(new = F)
+  timeSeries::plot(Cycle_dataset[, 1], plot.type = c("single"), ann = FALSE, col = 1, lwd = 2)
+  grid()
+  par(new = T)
+  timeSeries::plot(Cycle_dataset[, 2], plot.type = c("single"), 
+                         ann = FALSE, col = 2, yaxt = "n", xaxt = "n",
+                         lwd = 1)
+  mtext(paste0("CYCLES VISUALIZING: ", 
+                Cycle_dataset@units[1], " to ", 
+                Cycle_dataset@units[2]), side = 3, cex = 1)
+  legend("topleft", c(Cycle_dataset@units[1], Cycle_dataset@units[2]), 
+               lty = 1, col= c(1, 2))
+}
+
+
+##Visualizing Hourly Cycle.----------------------
+H$Cycles_Visualize_f3(H$Cycles.Hourly_TD_All)
+```

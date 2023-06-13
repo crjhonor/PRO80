@@ -1,0 +1,106 @@
+---
+title: "AUTO_CORRELATION"
+author: "CHEN RUJIE"
+date: "2020/1/12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE)
+AC <- new.env() #Enviornment for autocorrelation analysis
+#Global Enviornment Setup------------------------
+AC$globalWD <- getwd()
+#Loading Libraries.------------------------------
+library(readxl)
+library(timeDate)
+library(timeSeries)
+library(fBasics)
+```
+
+## Load Monthly Trading Data
+
+For the interests of trading soymeal, monthly trading datas of DCE Soymeal and CBOT Soybeans are loaded.
+
+```{r Load Trading Data}
+#Initialize Funcyions.===========================
+#Functions to Read Trading Data From Excel File
+AC$read_excel_TD <- function(contract_name){
+  #Read Excel File Data.
+  TD.read <- read_excel(file.path(AC$globalWD, "DATA", paste0(contract_name, ".xls")),
+                        col_types = c("text", "text", "date",
+                                      "numeric", "numeric", "numeric", 
+                                      "numeric", "numeric", "numeric", 
+                                      "numeric", "numeric", "numeric"),
+                        col_names = TRUE
+  )
+  colnames(TD.read) <- c(paste0(contract_name, "_Code"),
+                         paste0(contract_name, "_Contract"),
+                         paste0(contract_name, "_Date"),
+                         paste0(contract_name, "_Open"),
+                         paste0(contract_name, "_High"),
+                         paste0(contract_name, "_Low"),
+                         paste0(contract_name, "_Close"),
+                         paste0(contract_name, "_Chg"),
+                         paste0(contract_name, "_RateofChg"),
+                         paste0(contract_name, "_Vol"),
+                         paste0(contract_name, "_Amn"),
+                         paste0(contract_name, "_Settle"))
+  #For not deleting most recent data, I have to delete the settle column
+  TD.read <- TD.read[, -12]
+  TD.read.na <- na.omit(TD.read)
+  return(TD.read.na)
+}
+
+#Executing Loading Process.======================
+##Seting up
+setwd(AC$globalWD)
+AC$ref_TD <- c("M0_Monthly", "ZS00Y_Monthly", "GC00Y_Monthly", "AU0_Monthly")
+AC$ref_TD.text <- c("DCE Soymeal Futures", 
+                    "CBOT Soybean Futures",
+                    "COMEX Gold Futures",
+                    "SHFE Gold Futures")
+AC$MonthlyTD <- list(NULL)
+##Loading Monthly Trading Data
+for(i in 1:length(AC$ref_TD)){
+  AC$MonthlyTD[i] <- list(AC$read_excel_TD(AC$ref_TD[i]))
+  names(AC$MonthlyTD)[i] <- c(paste0(AC$ref_TD[i], "lyTD"))
+}
+```
+
+```{r Experimental Part I}
+#Obtain Monthly Return of CBOT SOYBEAN monthly close. Transfer the cloase data into time series object for convience.
+x.ts <- timeSeries(AC$MonthlyTD$ZS00Y_MonthlylyTD$ZS00Y_Monthly_Close, 
+                   charvec = AC$MonthlyTD$ZS00Y_MonthlylyTD$ZS00Y_Monthly_Date,
+                   units = "ZS00Y_Monthly_Close"
+                   )
+#Calculate simple return. No logarithm is used.
+x.rt <- x.ts[2:length(x.ts)]/x.ts[1:length(x.ts)-1] - 1
+#Convert the simple return into time series object.
+x.rt.ts <- timeSeries(x.rt,
+                      charvec = AC$MonthlyTD$ZS00Y_MonthlylyTD$ZS00Y_Monthly_Date[2:length(x.ts)],
+                      units = "Simple_Return")
+basicStats(x.rt.ts)
+```
+
+```{r Experimental Part II - 1}
+plot(x.ts)
+plot(x.rt.ts)
+acf(x.ts, lag = 106)
+acf(x.rt.ts, lag = 106)
+```
+
+```{r Experimental Part II - 2}
+#With 18 months seasonality assumption.
+AC$eighteen.dummy <- c(0,0,0,1,rep(0,14))
+#Create dummy for data
+x.dummy <- c(rep(AC$eighteen.dummy, ceiling(length(x.ts)/18)))
+x.dummy <- x.dummy[2:length(x.ts)]
+model1 <- lm(x.rt.ts$Simple_Return~x.dummy)
+model1
+
+model2 <- arima(x.rt.ts, order = c(1,0,0), seasonal = list(order = c(1,0,1), 
+                period = 18), include.mean = F)
+model2
+```
+

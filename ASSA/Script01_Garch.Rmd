@@ -1,0 +1,114 @@
+---
+title: "BAYESIAN DCC GARCH REPORT......"
+output: 
+  html_document:
+    df_print: paged
+---
+
+```{r Setup, include=FALSE}
+#DESTINATION.====================================
+#This script is to implement Garch model sperated from Moring main rmarkdown script. This should smooth the
+#data analysis process by reducing the computing time of the main script. Bayesian DCC Garch is implemented to
+#trade data, currencies and yields respectively.
+#Libraries.======================================
+library(fGarch)
+library(ggplot2)
+library(knitr)
+library(scales)
+#Using environment for clearness.
+S01 <- new.env()
+S01$Time.start <- Sys.time()
+knitr::opts_chunk$set(echo = FALSE,
+                      warning = FALSE,
+                      fig.width = 16,
+                      fig.height = 6)
+```
+
+```{r Functions and Preparations}
+#Functions.--------------------------------------
+#Function to apply univeriate t GARCH model.
+S01$Garch_fGarch <- function(Garch_dataset, #univeriate data
+                             tprob = 0.99){ #Probability level
+  #t - GARCH
+  gfit <- garchFit(formula = ~garch(1, 1), data = Garch_dataset, 
+                   cond.dist = "std", trace = FALSE)
+  sigma <- predict(gfit, n.ahead = 1)[3]
+  df <- coef(gfit)["shape"]
+  ES <- sigma * (dt(qt(tprob, df), df)/(1 - tprob)) * ((df + (qt(tprob, df)) ^ 2)/(df - 1))
+  #Return Expected Shortfalls
+  return(ES)
+}
+
+#Function to Restructure.------------------------
+S01$ReStr.Fun <- function(dataset){
+  for(ir in 2:dim(dataset)[2]){
+    if(ir == 2){
+      ReStr.Dataset <- dataset[, c(1,ir)]
+      colnames(ReStr.Dataset) <- c("Date", "HPFC")
+      ReStr.Dataset$LEGENDS <- names(dataset)[ir]
+      return.ReStr <- ReStr.Dataset
+    }else{
+      ReStr.Dataset <- dataset[, c(1, ir)]
+      colnames(ReStr.Dataset) <- c("Date", "HPFC")
+      ReStr.Dataset$LEGENDS <- names(dataset)[ir]
+      return.ReStr <- rbind(return.ReStr,
+                            ReStr.Dataset)
+    }
+  }
+  return(return.ReStr)
+}
+```
+
+```{r Bayesian DCC GARCH to yields, include=FALSE}
+#Functions.======================================
+#Function to bind
+S01$tGarch_Bind <- function(dataset1, dataset2){
+  bind.begin <- dim(dataset1)[1] - dim(dataset2)[1] + 1 + 1
+  bind.end <- dim(dataset1)[1]
+  ##convert to dataframe
+  bind.a <- as.data.frame(dataset1)[bind.begin:bind.end, 1]
+  bind.b <- as.data.frame(dataset2)[-1, 1]
+  return.bind <- cbind(bind.a, bind.b)
+  ##convert to timeSeries again and return the result
+  return.bind.ts <- timeSeries(return.bind,
+                               time(dataset1)[bind.begin:bind.end])
+  return(return.bind.ts)
+}
+
+#Processing.=====================================
+S01$Time.start <- Sys.time()
+#Reading Dataset.--------------------------------
+S01$yields.Garch.dataset <- read.csv("GARCH/yields_GARCH_Dataset.csv", header = TRUE)
+S01$tGarch.yields.dataset <- timeSeries(S01$yields.Garch.dataset[["CN_10yry_hpfc"]],
+                                        as.Date(S01$yields.Garch.dataset[["X"]]))
+
+#Implementing univeriate t-GARCH MODEL.--------------
+#Using 256 days a a window for time span
+S01$w <- 256
+S01$from <- time(S01$tGarch.yields.dataset)[-c((nrow(S01$tGarch.yields.dataset) -
+                                                  S01$w):nrow(S01$tGarch.yields.dataset))]
+S01$to <- time(S01$tGarch.yields.dataset)[-c(1:S01$w)]
+S01$tGarch.yields.ES <- fapply(S01$tGarch.yields.dataset, from = S01$from, to = S01$to, FUN = S01$Garch_fGarch)
+S01$tGarch.yields.ES.L1 <- lag(S01$tGarch.yields.ES, 1)
+S01$tGarch.yields.res <- S01$tGarch_Bind(S01$tGarch.yields.dataset, S01$tGarch.yields.ES.L1)
+
+colnames(S01$tGarch.yields.res) <- c("CYCLE", "ES")
+#Ploting out results.
+plot(S01$tGarch.yields.res[, 2], col = "blue", ylim = range(S01$tGarch.yields.res), 
+     main = "CN_10yry: CYCLE and ES 99%", ylab = "Distence from the mean.")
+points(S01$tGarch.yields.res[, 1], type = "p", cex = 0.2, pch = 19, col = "black")
+legend("topleft", legend = c("CYCLE", "ES"), col = c("black", "blue"), lty = c(NA, 1), pch = c(19, NA))
+
+
+#Saving Output to CSV files.---------------------
+write.csv(S01$tGarch.yields.res, "GARCH/t-GARCH_yields_Output.csv", row.names = TRUE)
+
+S01$Time.end <- Sys.time()
+S01$Time.used <- S01$Time.end - S01$Time.start
+```
+
+PART I : t - Garch to yields.
+
+Report of t - Garch to yields, generated at: `r Sys.time()` ; 
+
+Time Used For Modeling: `r S01$Time.used` Minutes.

@@ -1,0 +1,158 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+#Rmarkdown Global Setup--------------------------------------------------
+library(knitr)
+knitr::opts_chunk$set(echo = FALSE,
+                      warning = FALSE,
+                      fig.width = 14,
+                      fig.height = 10)
+DLC <- new.env()
+DLC$Time.start <- Sys.time()
+```
+
+RCNN for CYCLES
+==================================================
+
+Data Preparation Process
+
+```{r Data Preparation}
+library(imputeTS)
+library(zoo)
+library(xts)
+##Functions.-------------------------------------
+#Function to obtain return of dataframe.
+DLC$return_DF <- function(dataset = as.data.frame(NULL), 
+                          k = 1, #Order of difference
+                          percentage = TRUE){ #X100 or not.
+  lag0 <- dataset[-1:-k, ]
+  lagk <- dataset[1:(dim(dataset)[1]-k), ]
+  if(percentage == TRUE){
+    return.R <- (lag0 - lagk) / lagk
+    return.R <- return.R * 100
+  }else{
+    return.R <- (lag0 - lagk) / lagk
+  }
+  return(return.R)
+}
+##Lading Data into Memories.---------------------
+#Import trends dataset from csv files.
+DLC$Data_Loaded <- read.csv("DEEPLEARN/Cycles_Reengineered_Target1.csv", header = TRUE)
+
+#Removing Missing Values.
+#Subset the dataset after 2015-05-25 as China 10yr Treasury future started to trade at that date.
+DLC$Data_Loaded.na <- subset.data.frame(DLC$Data_Loaded, as.Date(X) >= "2015-03-25")
+DLC$Data_Loaded.na <- na.interpolation(DLC$Data_Loaded.na, option = "linear")
+
+#Dataset Preparation
+DLC$Model_Data.date <- as.Date(DLC$Data_Loaded.na[, 1])
+DLC$Model_Data.nodate <- DLC$Data_Loaded.na[, -1]
+#Return of cycles, percentage = TRUE
+DLC$Model_Data.R <- DLC$return_DF(DLC$Model_Data.nodate, k = 1)
+
+##Ploting results and outputs.-------------------
+plot(DLC$Model_Data.R[, 1], type = "l", main = "Return of Lag 1 of cycles.", ylim = c(-500, 500))
+```
+
+From the Very Begining, Simple Network model is implemented into very simple Cycle dataset.
+
+First Look at a neutral network model.
+
+Inspired by iris project. The cycle of target, which was continuous, can be converted to discrete or even classes type. 
+
+```{r First Look at a Neutral network model}
+##Containing a 3 column dataset which are target, yield and currency respectively.
+DLC$Sim_Net.Dataset <- DLC$Model_Data.nodate[, 1:3]
+DLC$Sim_Net.Dataset.date <- DLC$Model_Data.date
+
+##Obtaining training and testing dataset.
+#Make testing dataset as the data of last 21 daily cycles.
+DLC$Sim_Net.test.x <- DLC$Sim_Net.Dataset[(dim(DLC$Sim_Net.Dataset)[1] - 21 + 1):dim(DLC$Sim_Net.Dataset)[1], 2:3]
+DLC$Sim_Net.test.y <- DLC$Sim_Net.Dataset[(dim(DLC$Sim_Net.Dataset)[1] - 21 + 1):dim(DLC$Sim_Net.Dataset)[1], 1]
+DLC$Sim_Net.test.date <- DLC$Sim_Net.Dataset.date[(dim(DLC$Sim_Net.Dataset)[1] - 21 + 1):dim(DLC$Sim_Net.Dataset)[1]]
+DLC$Sim_Net.test.label <- round((DLC$Sim_Net.test.y/100), digits = 0)
+#And daily cycles before the last 21 days as the Training dataset.
+DLC$Sim_Net.train.x <- DLC$Sim_Net.Dataset[1:(dim(DLC$Sim_Net.Dataset)[1] - 21), 2:3]
+DLC$Sim_Net.train.y <- DLC$Sim_Net.Dataset[1:(dim(DLC$Sim_Net.Dataset)[1] - 21), 1]
+DLC$Sim_Net.train.date <- DLC$Sim_Net.Dataset.date[1:(dim(DLC$Sim_Net.Dataset)[1] - 21)]
+DLC$Sim_Net.train.label <- round((DLC$Sim_Net.train.y/100), digits = 0)
+
+plot(DLC$Sim_Net.train.label,
+     type = "h", main = "Target Plot", xlab = "Date", ylab = "Discrete")
+
+```
+
+```{r}
+##Creating Network
+##Loading Libraries.
+library(keras)
+
+DLC$units.c <- max(DLC$Sim_Net.train.label) - min(DLC$Sim_Net.train.label) + 1
+
+##Network Architecture
+DLC$Sim_Net.network <- keras_model_sequential() %>%
+  layer_dense(units = 512, activation = "relu", input_shape = c(2)) %>%
+  layer_dense(units = DLC$units.c, activation = "softmax")
+
+##Compiling Step
+DLC$Sim_Net.network %>% compile(
+  optimizer = "rmsprop",
+  loss = "categorical_crossentropy",
+  metrics = c("accuracy")
+)
+
+##Reshaping the input dataset
+DLC$Sim_Net.test.x <- array_reshape(as.matrix.data.frame(DLC$Sim_Net.test.x), c(dim(DLC$Sim_Net.test.x)[1], 2))
+DLC$Sim_Net.train.x <- array_reshape(as.matrix.data.frame(DLC$Sim_Net.train.x), c(dim(DLC$Sim_Net.train.x)[1], 2))
+
+##Categoricalized the labels.
+DLC$Sim_Net.train.label <- to_categorical(DLC$Sim_Net.train.label, num_classes = DLC$units.c)
+DLC$Sim_Net.test.label <- to_categorical(DLC$Sim_Net.test.label, num_classes = DLC$units.c)
+
+##Fitting process.
+DLC$Sim_Net.network %>% fit(DLC$Sim_Net.train.x, DLC$Sim_Net.train.label, epochs = 5, batch_size = 128)
+
+##Prediction.
+DLC$Sim_Net.network %>% predict_classes(DLC$Sim_Net.test.x)
+
+```
+
+But we achieve very low accuracy. In the following step, I will try concept of 3D tensor and implement a model of 3D tensor flow. The concept of 3D tensor to timeseries includes: The first axis is samples, which is the commordities I am trading, each type of commordity equals one sample; Second axis is the timesteps, which are the trading date either daily or hourly; Third axis is the features, which can be trading price, volume or others.
+
+The the Convolutional Network is considered to be the model for dataset.
+
+```{r Simple Convolutional Nework}
+##Network Architecture
+DLC$Convnet <- keras_model_sequential() %>%
+  layer_conv_2d(filters = 32, kernel_size = c(1, 1), activation = "relu", input_shape = c(2, 1, 1))
+
+##Dataset Preparation
+##Containing a 3 column dataset which are target, yield and currency respectively.
+DLC$Convnet.Dataset <- DLC$Model_Data.nodate[, 1:3]
+DLC$Convnet.Dataset.date <- DLC$Model_Data.date
+
+##Obtaining training and testing dataset.
+#Make testing dataset as the data of last 21 daily cycles.
+DLC$Convnet.test.x <- array(NA, c(21, 1, 2), dimnames = list(c(as.character(DLC$Convnet.test.date)), 
+                                                          c("HPFC"), 
+                                                          c(colnames(DLC$Convnet.Dataset)[2:3])))
+  array(DLC$Convnet.Dataset[(dim(DLC$Convnet.Dataset)[1] - 21 + 1):dim(DLC$Convnet.Dataset)[1], 2])
+  DLC$Sim_Net.Dataset[(dim(DLC$Convnet.Dataset)[1] - 21 + 1):dim(DLC$Convnet.Dataset)[1], 2:3]
+DLC$Convnet.test.y <- DLC$Sim_Net.Dataset[(dim(DLC$Convnet.Dataset)[1] - 21 + 1):dim(DLC$Convnet.Dataset)[1], 1]
+DLC$Convnet.test.date <- DLC$Convnet.Dataset.date[(dim(DLC$Convnet.Dataset)[1] - 21 + 1):dim(DLC$Convnet.Dataset)[1]]
+DLC$Convnet.test.label <- round((DLC$Convnet.test.y/100), digits = 0)
+#And daily cycles before the last 21 days as the Training dataset.
+DLC$Convnet.train.x <- DLC$Convnet.Dataset[1:(dim(DLC$Convnet.Dataset)[1] - 21), 2:3]
+DLC$Convnet.train.y <- DLC$Convnet.Dataset[1:(dim(DLC$Convnet.Dataset)[1] - 21), 1]
+DLC$Convnet.train.date <- DLC$Convnet.Dataset.date[1:(dim(DLC$Convnet.Dataset)[1] - 21)]
+DLC$Convnet.train.label <- round((DLC$Convnet.train.y/100), digits = 0)
+
+##Reshaping the dataset
+DLC$Convnet.test.x <- array_reshape(as.matrix.data.frame(DLC$Convnet.test.x), c(dim(DLC$Convnet.test.x)[1], 1))
+DLC$Sim_Net.train.x <- array_reshape(as.matrix.data.frame(DLC$Sim_Net.train.x), c(dim(DLC$Sim_Net.train.x)[1], 2))
+
+```
+

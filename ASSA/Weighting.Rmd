@@ -1,0 +1,63 @@
+---
+title: "Weighting Analysis"
+output: html_notebook
+---
+
+Purposes: to analysis the prime factors (yields and currencies) effect to commordity price trends and cycles with weights applied to them.
+
+```{r Initializing, echo=FALSE}
+##Loading Libraries.------------------------------
+library(keras)
+library(timeDate)
+library(timeSeries)
+library(ggplot2)
+library(gridExtra)
+library(zoo)
+library(xts)
+library(lubridate)
+library(imputeTS)
+
+##Using environment for clearness.
+WT <- new.env()
+
+##Load original data for further combination of the output.
+WT$TD_All <- read.csv("DEEPLEARN/TD_All.csv", header = TRUE)
+
+```
+
+First ever thought is to develop a regression applying weights directly to the factors.
+
+So, We obtain the dataset for regression.
+
+```{r Obtain Dataset for Regression.}
+##Define dataset indexes wanted.=================
+#Function to get dataset for regression.
+WT$Dataset_Get <- function(dataset, label.ind, feature.ind, type = c("Close")){
+  return.dataset <- data.frame(NULL)
+  return.dataset <- cbind.data.frame(dataset[, 1], 
+                                     dataset[, paste0(c(label.ind, feature.ind), type)])
+  names(return.dataset)[1] <- c("Date")
+  return(return.dataset)
+}
+
+#Label Dataset Index.
+WT$Label.ind <- c("J0", "NI0")
+
+#Feature 
+WT$Feature.ind <- c("US_10yry", "CN_10yry")
+
+WT$Dataset.Regression <- WT$Dataset_Get(WT$TD_All, WT$Label.ind, WT$Feature.ind)
+
+##Data Ploting.==================================
+#Time axis processing.
+WT$x_label <- seq.Date(from = as.Date(WT$Dataset.Regression$Date[1]), 
+                    to = as.Date(WT$Dataset.Regression$Date[dim(WT$Dataset.Regression)[1]]), by = "2 months")
+#ggploting.
+WT$Dataset.Regression.gg1 <- ggplot(WT$Dataset.Regression, aes(factor(as.Date(Date)), J0Close, group = 1)) + 
+  geom_line() +
+  scale_x_discrete(breaks = c(as.character(WT$x_label)), labels = format(x = WT$x_label, format = "%y%m%d")) +
+  theme(axis.text.x = element_text(angle = 90)) + xlab("Date of Trade")
+
+WT$Dataset.Regression.gg1
+```
+
